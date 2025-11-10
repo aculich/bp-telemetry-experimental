@@ -97,11 +97,40 @@ async def get_metrics(
             if not session and not tools:
                 global_metrics = conversation_storage.get_global_acceptance_metrics()
                 if global_metrics:
+                    avg_acceptance = global_metrics.get("avg_acceptance_rate", 0) or 0
+                    total_convs = global_metrics.get("total_conversations", 0) or 0
+                    total_changes = global_metrics.get("total_changes", 0) or 0
+                    
+                    # Calculate time saved (rough estimate: 5 min per accepted change)
+                    time_saved_hours = (total_changes * 5) / 60.0
+                    
                     session = {
-                        "acceptance_rate": global_metrics.get("avg_acceptance_rate", 0) or 0,
-                        "total_conversations": global_metrics.get("total_conversations", 0) or 0,
-                        "total_changes": global_metrics.get("total_changes", 0) or 0,
+                        "acceptance_rate": float(avg_acceptance) if avg_acceptance else 0,
+                        "total_conversations": int(total_convs) if total_convs else 0,
+                        "total_changes": int(total_changes) if total_changes else 0,
+                        "time_saved_hours": time_saved_hours,
                     }
+                    
+                    # Calculate tool usage from conversations
+                    # Get all conversations and count tool usage
+                    all_convs = conversation_storage.get_all_conversations(limit=1000)
+                    tool_counts = {}
+                    for conv in all_convs:
+                        # Get turns for this conversation
+                        conv_id = conv.get("id")
+                        if conv_id:
+                            cursor = conversation_storage.conn.execute("""
+                                SELECT metadata FROM conversation_turns
+                                WHERE conversation_id = ? AND turn_type = 'tool_use'
+                            """, (conv_id,))
+                            for row in cursor:
+                                import json
+                                metadata = json.loads(row["metadata"] or "{}")
+                                tool_name = metadata.get("tool", "Unknown")
+                                tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+                    
+                    if tool_counts:
+                        tools = tool_counts
             
             return MetricsResponse(
                 realtime=realtime,
@@ -177,21 +206,46 @@ async def list_sessions(
             platform=platform,
         )
         
-        return [
-            ConversationSummary(
-                id=conv.get("id", ""),
-                session_id=conv.get("session_id", ""),
-                external_session_id=conv.get("external_session_id", ""),
-                platform=conv.get("platform", "unknown"),
-                started_at=conv.get("started_at", ""),
-                ended_at=conv.get("ended_at"),
-                interaction_count=conv.get("interaction_count", 0),
-                acceptance_rate=conv.get("acceptance_rate"),
-                total_tokens=conv.get("total_tokens", 0),
-                total_changes=conv.get("total_changes", 0),
-            )
-            for conv in conversations
-        ]
+        result = []
+        for conv in conversations:
+            # Convert string values to proper types
+            ended_at = conv.get("ended_at")
+            if ended_at == "None" or ended_at is None:
+                ended_at = None
+            else:
+                ended_at = str(ended_at)
+            
+            acceptance_rate = conv.get("acceptance_rate")
+            if acceptance_rate == "None" or acceptance_rate is None:
+                acceptance_rate = None
+            else:
+                acceptance_rate = float(acceptance_rate)
+            
+            interaction_count = conv.get("interaction_count", 0)
+            if isinstance(interaction_count, str):
+                interaction_count = int(interaction_count) if interaction_count != "None" else 0
+            
+            total_tokens = conv.get("total_tokens", 0)
+            if isinstance(total_tokens, str):
+                total_tokens = int(total_tokens) if total_tokens != "None" else 0
+            
+            total_changes = conv.get("total_changes", 0)
+            if isinstance(total_changes, str):
+                total_changes = int(total_changes) if total_changes != "None" else 0
+            
+            result.append(ConversationSummary(
+                id=str(conv.get("id", "")),
+                session_id=str(conv.get("session_id", "")),
+                external_session_id=str(conv.get("external_session_id", "")),
+                platform=str(conv.get("platform", "unknown")),
+                started_at=str(conv.get("started_at", "")),
+                ended_at=ended_at,
+                interaction_count=interaction_count,
+                acceptance_rate=acceptance_rate,
+                total_tokens=total_tokens,
+                total_changes=total_changes,
+            ))
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing sessions: {str(e)}")
 

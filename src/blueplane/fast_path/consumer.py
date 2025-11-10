@@ -147,6 +147,37 @@ class FastPathConsumer:
                         # Skip invalid JSON
                         continue
                     
+                    # Extract fields from Redis stream entry and merge into event
+                    # These are stored as separate fields in Redis but need to be in event dict
+                    if "platform" in fields:
+                        event["platform"] = fields["platform"]
+                    if "external_session_id" in fields:
+                        event["session_id"] = fields["external_session_id"]
+                        event["external_session_id"] = fields["external_session_id"]
+                    if "hook_type" in fields:
+                        event["hook_type"] = fields["hook_type"]
+                        # Also set event_type for compatibility
+                        if "event_type" not in event:
+                            event["event_type"] = fields["hook_type"]
+                    if "timestamp" in fields:
+                        event["timestamp"] = fields["timestamp"]
+                    if "metadata" in fields:
+                        try:
+                            metadata = json.loads(fields["metadata"])
+                            if "metadata" not in event:
+                                event["metadata"] = {}
+                            event["metadata"].update(metadata)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    # Extract workspace_hash from payload if present
+                    if "payload" in event and isinstance(event["payload"], dict):
+                        workspace_hash = event["payload"].get("workspace_hash")
+                        if workspace_hash:
+                            if "metadata" not in event:
+                                event["metadata"] = {}
+                            event["metadata"]["workspace_hash"] = workspace_hash
+                    
                     # Add ingestion metadata
                     event["_ingested_at"] = datetime.utcnow().isoformat()
                     

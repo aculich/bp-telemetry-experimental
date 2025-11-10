@@ -368,18 +368,28 @@ class ConversationStorage:
 
     def get_global_acceptance_metrics(self) -> Dict:
         """Get global acceptance rate metrics (for Layer 3 dashboards)."""
+        # Calculate from all conversations, handling NULL acceptance rates
         cursor = self.conn.execute("""
             SELECT 
-                COUNT(DISTINCT conversation_id) as total_conversations,
+                COUNT(*) as total_conversations,
                 AVG(acceptance_rate) as avg_acceptance_rate,
                 SUM(total_changes) as total_changes,
                 SUM(CASE WHEN acceptance_rate > 0.5 THEN 1 ELSE 0 END) as high_acceptance_conversations
             FROM conversations
-            WHERE acceptance_rate IS NOT NULL
         """)
         
         row = cursor.fetchone()
-        return dict(row) if row else {}
+        if row:
+            result = dict(row)
+            # Convert None to 0 for numeric fields
+            if result.get("avg_acceptance_rate") is None:
+                result["avg_acceptance_rate"] = 0
+            if result.get("total_changes") is None:
+                result["total_changes"] = 0
+            if result.get("total_conversations") is None:
+                result["total_conversations"] = 0
+            return result
+        return {}
 
     def get_acceptance_statistics(self, time_range: str = "7d") -> Dict:
         """Get acceptance statistics over time (for Layer 3 analytics)."""

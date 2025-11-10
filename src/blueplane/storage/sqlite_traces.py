@@ -211,9 +211,48 @@ class SQLiteTraceStorage:
         event_data = zlib.decompress(row["event_data"])
         event = json.loads(event_data.decode("utf-8"))
         
-        # Merge indexed fields
+        # Merge indexed fields from database row into event
         event["_sequence"] = row["sequence"]
         event["_ingested_at"] = row["ingested_at"]
+        event["event_id"] = row["event_id"]
+        event["session_id"] = row["session_id"]
+        event["platform"] = row["platform"]
+        event["timestamp"] = row["timestamp"]
+        
+        # Merge event_type if present in row (may be None for hook-based events)
+        if row["event_type"]:
+            event["event_type"] = row["event_type"]
+        
+        # Merge other indexed fields if present
+        if row["workspace_hash"]:
+            if "metadata" not in event:
+                event["metadata"] = {}
+            event["metadata"]["workspace_hash"] = row["workspace_hash"]
+        
+        if row["tool_name"]:
+            if "payload" not in event:
+                event["payload"] = {}
+            event["payload"]["tool"] = row["tool_name"]
+        
+        if row["duration_ms"]:
+            if "payload" not in event:
+                event["payload"] = {}
+            event["payload"]["duration_ms"] = row["duration_ms"]
+        
+        if row["tokens_used"]:
+            if "payload" not in event:
+                event["payload"] = {}
+            event["payload"]["tokens_used"] = row["tokens_used"]
+        
+        if row["lines_added"]:
+            if "payload" not in event:
+                event["payload"] = {}
+            event["payload"]["lines_added"] = row["lines_added"]
+        
+        if row["lines_removed"]:
+            if "payload" not in event:
+                event["payload"] = {}
+            event["payload"]["lines_removed"] = row["lines_removed"]
         
         return event
 

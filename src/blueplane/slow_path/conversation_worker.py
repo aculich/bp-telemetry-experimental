@@ -67,6 +67,9 @@ class ConversationWorker:
         metadata = event.get("metadata", {})
         payload = event.get("payload", {})
         
+        # Use hook_type if event_type is empty (Claude Code events use hook_type)
+        effective_type = event_type or hook_type
+        
         # Get or create conversation
         external_session_id = event.get("external_session_id") or session_id
         workspace_hash = metadata.get("workspace_hash")
@@ -78,15 +81,21 @@ class ConversationWorker:
             workspace_hash=workspace_hash,
         )
         
-        # Process based on event type
-        if event_type in ("user_prompt", "UserPromptSubmit", "BeforeSubmitPrompt"):
+        # Process based on event type (check both event_type and hook_type)
+        if effective_type in ("user_prompt", "UserPromptSubmit", "BeforeSubmitPrompt"):
             await self._process_user_prompt(conversation_id, event)
-        elif event_type in ("assistant_response", "AfterAgentResponse"):
+        elif effective_type in ("assistant_response", "AfterAgentResponse"):
             await self._process_assistant_response(conversation_id, event)
-        elif event_type in ("tool_use", "PostToolUse", "AfterMCPExecution"):
+        elif effective_type in ("tool_use", "PostToolUse", "AfterMCPExecution"):
             await self._process_tool_use(conversation_id, event)
-        elif event_type in ("code_change", "AfterFileEdit"):
+        elif effective_type in ("code_change", "AfterFileEdit"):
             await self._process_code_change(conversation_id, event)
+        # Handle PostToolUse specifically - it contains acceptance info
+        elif effective_type == "PostToolUse":
+            await self._process_tool_use(conversation_id, event)
+            # Also track as code change if it's an Edit tool
+            if payload.get("tool") == "Edit" and payload.get("accepted") is not None:
+                await self._process_code_change(conversation_id, event)
 
     async def _process_user_prompt(self, conversation_id: str, event: Dict) -> None:
         """Process user prompt event."""
@@ -134,17 +143,23 @@ class ConversationWorker:
         payload = event.get("payload", {})
         tool_name = payload.get("tool") or event.get("tool_name")
         
+        tokens_used = payload.get("tokens_used")
+        latency_ms = payload.get("duration_ms") or payload.get("latency_ms")
+        
         # Add turn
         self.conversation_storage.add_turn(
             conversation_id=conversation_id,
             turn_type="tool_use",
             metadata={"tool": tool_name, **payload},
+            tokens_used=tokens_used,
+            latency_ms=latency_ms,
         )
 
     async def _process_code_change(self, conversation_id: str, event: Dict) -> None:
         """Process code change event."""
         payload = event.get("payload", {})
         
+        # For PostToolUse events, extract from payload
         file_extension = payload.get("file_extension")
         operation = payload.get("operation", "edit")
         lines_added = payload.get("lines_added", 0)
@@ -152,17 +167,19 @@ class ConversationWorker:
         accepted = payload.get("accepted")
         acceptance_delay_ms = payload.get("acceptance_delay_ms")
         
-        # Track code change
-        self.conversation_storage.track_code_change(
-            conversation_id=conversation_id,
-            turn_id=None,  # Could link to turn if available
-            file_extension=file_extension,
-            operation=operation,
-            lines_added=lines_added,
-            lines_removed=lines_removed,
-            accepted=accepted,
-            acceptance_delay_ms=acceptance_delay_ms,
-        )
+        # Only track if we have meaningful data
+        if lines_added > 0 or lines_removed > 0 or accepted is not None:
+            # Track code change
+            self.conversation_storage.track_code_change(
+                conversation_id=conversation_id,
+                turn_id=None,  # Could link to turn if available
+                file_extension=file_extension,
+                operation=operation,
+                lines_added=lines_added,
+                lines_removed=lines_removed,
+                accepted=accepted,
+                acceptance_delay_ms=acceptance_delay_ms,
+            )
 
     def _hash_content(self, content: str) -> str:
         """Hash content for privacy (simplified)."""
