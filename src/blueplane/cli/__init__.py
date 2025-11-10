@@ -2,5 +2,7 @@
 Layer 3 CLI interface.
 """
 
-# Placeholder for future implementation
+from .main import main, cli
+
+__all__ = ["main", "cli"]
 

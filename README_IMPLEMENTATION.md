@@ -28,28 +28,39 @@ This document tracks the implementation progress of the Blueplane Telemetry Core
    - Test script (`scripts/test_setup.py`)
    - Server runner script (`scripts/run_server.py`)
 
-### ⏳ In Progress / Pending
+### ✅ Recently Completed
 
 1. **Slow Path (Layer 2)**
-   - Worker pool manager (`slow_path/worker_pool.py`)
-   - Metrics worker (`slow_path/metrics_worker.py`)
-   - Conversation worker (`slow_path/conversation_worker.py`)
+   - ✅ Worker pool manager (`slow_path/worker_pool.py`)
+   - ✅ Metrics worker (`slow_path/metrics_worker.py`)
+   - ✅ Conversation worker (`slow_path/conversation_worker.py`)
 
 2. **Layer 2 Server**
-   - REST API endpoints (`server/api.py`)
-   - WebSocket endpoints (`server/websocket.py`)
+   - ✅ REST API endpoints (`server/api.py`)
+   - ✅ WebSocket endpoints (`server/websocket.py`)
 
 3. **Layer 3 CLI**
-   - CLI entry point (`cli/main.py`)
-   - Command implementations (`cli/commands/`)
+   - ✅ CLI entry point (`cli/main.py`)
+   - ✅ Command implementations (`cli/commands/`)
+     - `metrics` - Display current metrics
+     - `sessions` - List sessions
+     - `analyze` - Analyze session
+     - `export` - Export data
 
-4. **Layer 3 MCP Server**
+### ⏳ Pending
+
+1. **Layer 3 MCP Server**
    - MCP server implementation (`mcp/server.py`)
 
-5. **Tests**
+2. **Tests**
    - Unit tests for storage layer
    - Integration tests for fast path
    - End-to-end tests
+
+3. **Layer 1 Capture**
+   - IDE hooks for Claude Code
+   - IDE hooks for Cursor
+   - Database monitors
 
 ## Quick Start
 
@@ -61,10 +72,11 @@ This document tracks the implementation progress of the Blueplane Telemetry Core
 
 ### Setup
 
-1. **Install dependencies**:
+1. **Set up virtual environment**:
    ```bash
    cd experiment/core
-   pip install -e .
+   ./scripts/setup_venv.sh
+   source scripts/activate_venv.sh
    ```
 
 2. **Test setup**:
@@ -72,10 +84,23 @@ This document tracks the implementation progress of the Blueplane Telemetry Core
    python scripts/test_setup.py
    ```
 
-3. **Run server**:
+3. **Run servers**:
    ```bash
+   # Terminal 1: Processing server (fast + slow path)
    python scripts/run_server.py
+   
+   # Terminal 2: API server
+   python scripts/run_api_server.py
    ```
+
+4. **Use CLI**:
+   ```bash
+   blueplane metrics
+   blueplane sessions
+   blueplane analyze <session_id>
+   ```
+
+See [SETUP.md](./SETUP.md) for detailed setup instructions.
 
 ### Architecture
 
