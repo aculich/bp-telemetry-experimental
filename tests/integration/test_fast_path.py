@@ -19,18 +19,23 @@ from blueplane.config import config
 @pytest.fixture
 def redis_client():
     """Create a Redis client for testing."""
-    client = redis.Redis(
-        host=config.redis_host,
-        port=config.redis_port,
-        db=config.redis_db,
-        decode_responses=True,
-    )
-    yield client
-    # Cleanup test streams
     try:
-        client.delete(config.mq_stream_name, config.cdc_stream_name)
-    except:
-        pass
+        client = redis.Redis(
+            host=config.redis_host,
+            port=config.redis_port,
+            db=config.redis_db,
+            decode_responses=True,
+        )
+        client.ping()
+        yield client
+        # Cleanup test streams
+        try:
+            client.delete(config.mq_stream_name, config.cdc_stream_name)
+        except:
+            pass
+    except redis.ConnectionError:
+        pytest.skip("Redis not available")
+        yield None
 
 
 @pytest.mark.asyncio
@@ -72,6 +77,9 @@ async def test_fast_path_consumer(redis_client, sqlite_trace_storage):
 
 def test_cdc_publisher(redis_client):
     """Test CDC publisher."""
+    if redis_client is None:
+        pytest.skip("Redis not available")
+    
     publisher = CDCPublisher(redis_client=redis_client)
     
     cdc_event = {
