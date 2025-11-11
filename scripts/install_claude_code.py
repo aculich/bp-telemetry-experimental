@@ -50,6 +50,7 @@ def install_hooks(source_path: Path) -> bool:
         # Copy all Python hook files
         hook_files = [
             "session_start.py",
+            "session_end.py",
             "user_prompt_submit.py",
             "pre_tool_use.py",
             "post_tool_use.py",
@@ -143,11 +144,12 @@ def update_settings_json(hooks_dir: Path, backup: bool = True) -> bool:
         # Define hook configuration
         hook_configs = {
             "SessionStart": "session_start.py",
+            "SessionEnd": "session_end.py",  # Session end (when Claude Code closes)
             "UserPromptSubmit": "user_prompt_submit.py",
             "PreToolUse": "pre_tool_use.py",
             "PostToolUse": "post_tool_use.py",
             "PreCompact": "pre_compact.py",
-            "Stop": "stop.py",  # This is the session end hook
+            "Stop": "stop.py",  # End of turn (when assistant stops responding)
         }
 
         # Merge each hook (don't overwrite existing hooks)

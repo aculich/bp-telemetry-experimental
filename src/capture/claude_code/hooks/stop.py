@@ -6,8 +6,8 @@
 """
 Claude Code Stop Hook
 
-Fires at the end of a session.
-Receives JSON via stdin with session_id and transcript_path.
+Fires when the assistant stops generating a response (end of turn/interaction).
+Receives JSON via stdin with session_id.
 """
 
 import sys
@@ -21,34 +21,25 @@ from shared.event_schema import EventType, HookType
 
 
 class StopHook(ClaudeCodeHookBase):
-    """Hook that fires at session end."""
+    """Hook that fires when assistant stops responding (end of turn)."""
 
     def __init__(self):
         super().__init__(HookType.STOP)
 
     def execute(self) -> int:
         """Execute hook logic."""
-        # Extract session end data from stdin
-        transcript_path = self.input_data.get('transcript_path')
-        stop_hook_active = self.input_data.get('stop_hook_active', True)
+        # Extract stop data from stdin
+        # Stop hook fires at the end of each assistant response
 
         # Build event payload
         payload = {
             'session_id': self.session_id,
-            'stop_hook_active': stop_hook_active,
+            'stop_type': 'assistant_response_complete',
         }
-
-        if transcript_path:
-            payload['has_transcript'] = True
-            # Store path hash instead of full path for privacy
-            import hashlib
-            payload['transcript_path_hash'] = hashlib.sha256(str(transcript_path).encode()).hexdigest()[:16]
-            # Also store the actual path for the transcript monitor to use
-            payload['transcript_path'] = transcript_path
 
         # Build and enqueue event
         event = self.build_event(
-            event_type=EventType.SESSION_END,
+            event_type=EventType.ASSISTANT_RESPONSE,
             payload=payload
         )
 

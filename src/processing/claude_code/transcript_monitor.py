@@ -155,18 +155,18 @@ class ClaudeCodeTranscriptMonitor:
             for k, v in data.items()
         }
 
-        # Check if this is a Stop hook from claude_code platform
+        # Check if this is a SessionEnd hook from claude_code platform
         platform = decoded_data.get('platform', '')
         hook_type = decoded_data.get('hook_type', '')
 
-        if platform != 'claude_code' or hook_type != 'Stop':
-            # Not a Claude Code Stop hook, skip
+        if platform != 'claude_code' or hook_type != 'SessionEnd':
+            # Not a Claude Code SessionEnd hook, skip
             return
 
         # Extract session_id and payload
         session_id = decoded_data.get('external_session_id')
         if not session_id:
-            logger.warning("Stop hook missing session_id")
+            logger.warning("SessionEnd hook missing session_id")
             return
 
         # Check if already processed
@@ -184,7 +184,7 @@ class ClaudeCodeTranscriptMonitor:
 
         transcript_path = payload.get('transcript_path')
         if not transcript_path:
-            logger.debug("Stop hook has no transcript_path, skipping")
+            logger.debug("SessionEnd hook has no transcript_path, skipping")
             return
 
         # Process the transcript

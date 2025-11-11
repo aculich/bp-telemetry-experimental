@@ -33,30 +33,35 @@ Hooks are installed globally at: `~/.claude/hooks/telemetry/`
    - Captures session initialization metadata
    - Input: `{"session_id": "...", "source": "startup"}`
 
-2. **`user_prompt_submit.py`** - UserPromptSubmit hook
+2. **`session_end.py`** - SessionEnd hook
+   - Fires at the end of a session (when Claude Code closes)
+   - Captures final transcript path for processing
+   - Input: `{"session_id": "...", "transcript_path": "..."}`
+
+3. **`user_prompt_submit.py`** - UserPromptSubmit hook
    - Fires when user submits a prompt
    - Captures prompt text and length
    - Input: `{"session_id": "...", "prompt": "..."}`
 
-3. **`pre_tool_use.py`** - PreToolUse hook
+4. **`pre_tool_use.py`** - PreToolUse hook
    - Fires before tool execution
    - Captures tool name and input parameters
    - Input: `{"session_id": "...", "tool_name": "Read", "tool_input": {...}}`
 
-4. **`post_tool_use.py`** - PostToolUse hook
+5. **`post_tool_use.py`** - PostToolUse hook
    - Fires after tool execution completes
    - Captures tool results, success/failure, and errors
    - Input: `{"session_id": "...", "tool_name": "Read", "tool_result": "...", "error": null}`
 
-5. **`pre_compact.py`** - PreCompact hook
+6. **`pre_compact.py`** - PreCompact hook
    - Fires before context window compaction
    - Captures compaction trigger and transcript path
    - Input: `{"session_id": "...", "trigger": "context_limit", "transcript_path": "..."}`
 
-6. **`stop.py`** - Stop hook
-   - Fires at session termination
-   - Captures final transcript path for processing
-   - Input: `{"session_id": "...", "transcript_path": "..."}`
+7. **`stop.py`** - Stop hook
+   - Fires when assistant stops generating (end of turn/interaction)
+   - Captures completion of assistant response
+   - Input: `{"session_id": "..."}`
 
 ## Installation
 
@@ -92,6 +97,17 @@ python scripts/install_claude_code.py --dry-run
              {
                "type": "command",
                "command": "~/.claude/hooks/telemetry/session_start.py"
+             }
+           ]
+         }
+       ],
+       "SessionEnd": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "~/.claude/hooks/telemetry/session_end.py"
              }
            ]
          }
@@ -206,16 +222,20 @@ Configuration files are stored in `~/.blueplane/`:
 
 ## Transcript Processing
 
-The **Stop hook** has special behavior:
+The **SessionEnd hook** has special behavior:
 
-1. When Stop hook fires with `transcript_path` in payload
-2. ClaudeCodeTranscriptMonitor detects the Stop event
+1. When SessionEnd hook fires with `transcript_path` in payload
+2. ClaudeCodeTranscriptMonitor detects the SessionEnd event
 3. Monitor reads the .jsonl transcript file
 4. Each transcript entry becomes a trace event
 5. Trace events are sent back to Redis for processing
 6. All traces written to raw_traces table
 
 This provides complete conversation history for analytics.
+
+**Note**: The **Stop** hook is different from **SessionEnd**:
+- **Stop**: Fires at the end of each assistant response (end of turn)
+- **SessionEnd**: Fires when Claude Code closes (end of session)
 
 ## Troubleshooting
 
