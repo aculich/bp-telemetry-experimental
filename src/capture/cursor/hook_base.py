@@ -270,6 +270,9 @@ class CursorHookBase:
             'metadata': metadata or {},
         }
 
+        # Add process ID
+        event['metadata']['pid'] = os.getpid()
+
         # Add workspace hash if available
         workspace_hash = self._get_workspace_hash()
         if workspace_hash:
