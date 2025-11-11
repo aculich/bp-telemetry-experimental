@@ -34,9 +34,7 @@ graph TB
     subgraph "Cursor Implementation"
         CI[Cursor IDE] -->|Extension API| CE[Cursor Extension]
         CE -->|Environment Vars| CH[Cursor Hooks]
-        CE -->|DB Monitor| CD[Database Watcher]
         CH -->|Hook Events| MQW2[Message Queue Writer]
-        CD -->|Trace Events| MQW2
     end
 
     subgraph "Shared Components"
@@ -53,6 +51,8 @@ graph TB
 
     subgraph "Layer 2"
         Consumer[Queue Consumer] -->|Process| Layer2[Local Telemetry Server]
+        DBMON[Database Monitor<br/>Python Server] -->|Polling| CursorDB[(Cursor SQLite DBs)]
+        DBMON -->|Trace Events| MQ
     end
 
     MQ --> Consumer
@@ -282,7 +282,7 @@ def main():
 
 **Location**: `.cursor/extensions/telemetry-session-manager/`
 
-**Purpose**: Manages session IDs and monitors Cursor's SQLite database for traces
+**Purpose**: Manages session IDs and sends session events to Redis. **Note**: Database monitoring is handled by the Python processing server, not the extension.
 
 **Extension Components** (TypeScript pseudocode):
 
@@ -293,10 +293,13 @@ export async function activate(context: vscode.ExtensionContext) {
     /**
      * Extension activation.
      *
-     * - Create SessionManager and DatabaseMonitor
+     * - Create SessionManager
      * - Start new session (sets CURSOR_SESSION_ID environment variable)
-     * - Start database monitoring
+     * - Send session_start events to Redis
      * - Register VSCode commands (showStatus, newSession)
+     * 
+     * Note: Database monitoring is handled by Python processing server,
+     * not this extension.
      */
 }
 ```
@@ -311,6 +314,7 @@ export class SessionManager {
      *
      * - startNewSession(): Generate session ID (curs_{timestamp}_{random}),
      *   set CURSOR_SESSION_ID and CURSOR_WORKSPACE_HASH env vars
+     *   send session_start event to Redis
      * - getSessionId(): Return current session_id
      * - computeWorkspaceHash(): SHA256 hash of workspace path (first 16 chars)
      * - showStatus(): Display session info to user
@@ -320,52 +324,36 @@ export class SessionManager {
 
 ### 3.3 Database Monitoring
 
+**Location**: Python processing server (`src/processing/cursor/database_monitor.py`)
+
+**Note**: Database monitoring runs in Layer 2 (processing server), not Layer 1 (extension). The extension only handles session management.
+
 **Cursor Traces Database**:
 - Location: `~/Library/Application Support/Cursor/User/workspaceStorage/{id}/state.vscdb`
-- Contains: prompts, generations, composer sessions
-- Monitored tables: `aiService.prompts`, `aiService.generations`, `composer.composerData`
+- Contains: `ItemTable` key-value pairs with AI service data
+- Monitored keys: `aiService.generations`, `aiService.prompts` (stored as JSON arrays in `ItemTable`)
 
 **Database Monitor**:
-```typescript
-// src/databaseMonitor.ts (pseudocode)
+```python
+# src/processing/cursor/database_monitor.py (pseudocode)
 
-export class DatabaseMonitor {
-    /**
-     * Monitors Cursor's SQLite database for trace events.
-     *
-     * - startMonitoring(): Open DB readonly, start file watcher + polling
-     * - checkForChanges(): Compare data_version, capture if changed
-     * - captureChanges():
-     *   - Query "aiService.generations" WHERE data_version > last
-     *   - For each generation: get related prompt and composer data
-     *   - Transform to trace event
-     *   - Write to message queue
-     *
-     * Dual monitoring strategy:
-     * 1. File watcher (chokidar) - primary, real-time
-     * 2. Polling (every 30s) - backup, catch missed changes
-     */
-}
-
-            // Create trace event
-            const event = {
-                hook_type: 'DatabaseTrace',
-                timestamp: new Date().toISOString(),
-                trace_type: 'generation',
-                generation_id: gen.value.uuid,
-                prompt_data: promptData,
-                composer_data: composerData,
-                metadata: {
-                    data_version: gen.data_version,
-                    model: gen.value.model
-                }
-            };
-
-            // Send to message queue
-            this.writer.enqueue(event, 'cursor', process.env.CURSOR_SESSION_ID);
-        }
-    }
-}
+class CursorDatabaseMonitor:
+    """
+    Monitors Cursor's SQLite database for trace events.
+    
+    - startMonitoring(): Open DB readonly, start polling loop
+    - checkForChanges(): Compare timestamps, capture if changed
+    - captureChanges():
+      - Read "aiService.generations" from ItemTable (JSON array)
+      - For each generation: parse JSON, extract data
+      - Transform to trace event
+      - Write to message queue
+    
+    Monitoring strategy:
+    - Polling-based (every 30s by default)
+    - Uses timestamp-based change detection (unixMs)
+    - Read-only access with aggressive timeouts
+    """
 ```
 
 ## Installation
@@ -562,8 +550,8 @@ python install.py --dry-run
 | **Hook Names** | SessionStart, PreToolUse, PostToolUse, UserPromptSubmit, Stop, PreCompact | beforeSubmitPrompt, afterAgentResponse, beforeMCPExecution, afterMCPExecution, afterFileEdit, etc. |
 | **Hook Input** | JSON via stdin | Command-line arguments |
 | **Session ID** | Provided directly in hook events | Environment variable set by extension |
-| **Extension Required** | No | Yes (for session management & DB monitoring) |
-| **Database Traces** | Via transcript files | Direct SQLite monitoring |
+| **Extension Required** | No | Yes (for session management only) |
+| **Database Traces** | Via transcript files | Python processing server monitors SQLite |
 | **Hook Location** | ~/.claude/hooks/telemetry/ | .cursor/hooks/telemetry/ (project-level) |
 | **Configuration** | Claude settings.json | .cursor/hooks.json |
 | **Python Runtime** | uv (self-executing) | System Python |
@@ -644,7 +632,7 @@ privacy:
    - Claude Code: Direct session IDs in hook events (native support)
    - Cursor: Extension-managed sessions via environment variables (no file fallback needed with project-level hooks)
 
-4. **Database Monitoring**: Cursor requires active database monitoring to capture full conversation context, while Claude Code provides transcript files.
+4. **Database Monitoring**: Cursor database monitoring runs in Python processing server (Layer 2), not the TypeScript extension. The extension only handles session management.
 
 5. **Zero Dependencies**: All hooks use only Python stdlib to ensure maximum portability and reliability.
 

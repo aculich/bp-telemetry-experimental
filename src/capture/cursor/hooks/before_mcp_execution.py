@@ -36,6 +36,7 @@ class BeforeMCPExecutionHook(CursorHookBase):
         payload = {
             'tool_name': tool_name,
             'input_size': len(str(tool_input)),
+            'tool_input': tool_input,  # Full tool input (privacy-aware)
         }
 
         # Build and enqueue event

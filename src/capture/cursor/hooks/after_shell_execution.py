@@ -31,11 +31,17 @@ class AfterShellExecutionHook(CursorHookBase):
         # Extract shell execution data from stdin
         command = self.input_data.get('command', '')
         output = self.input_data.get('output', '')
+        exit_code = self.input_data.get('exit_code', 0)
+        duration_ms = self.input_data.get('duration_ms', 0)
 
         # Build event payload
         payload = {
             'command_length': len(command),
+            'command': command,  # Full command text (privacy-aware)
             'output_lines': output.count('\n') if output else 0,
+            'output': output,  # Full command output (privacy-aware)
+            'exit_code': exit_code,
+            'duration_ms': duration_ms,
         }
 
         # Build and enqueue event

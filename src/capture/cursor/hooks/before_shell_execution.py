@@ -35,6 +35,8 @@ class BeforeShellExecutionHook(CursorHookBase):
         # Build event payload
         payload = {
             'command_length': len(command),
+            'command': command,  # Full command text (privacy-aware)
+            'cwd': cwd,
         }
 
         # Build and enqueue event

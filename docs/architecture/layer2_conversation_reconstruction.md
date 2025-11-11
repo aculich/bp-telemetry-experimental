@@ -57,10 +57,12 @@ class ConversationWorker:
    - `BeforeMCPExecution`/`AfterMCPExecution`: Tool calls
    - `AfterFileEdit`: File modifications with full edit details
 
-2. **Database Traces (via Layer 1 DB Monitor)**:
-   - `aiService.prompts`: Complete prompt history
-   - `aiService.generations`: Generation metadata with UUIDs
-   - `composer.composerData`: Session grouping and state
+2. **Database Traces (via Layer 2 Database Monitor)**:
+   - Database monitor reads from Cursor's `ItemTable` key-value pairs
+   - `aiService.prompts`: Complete prompt history (JSON array in `ItemTable`)
+   - `aiService.generations`: Generation metadata with UUIDs (JSON array in `ItemTable`)
+   - `composer.composerData`: Session grouping and state (if available)
+   - Note: These are converted to `database_trace` events and stored in `raw_traces` table
 
 ### Reconstruction Algorithm
 
@@ -80,9 +82,12 @@ async def reconstruct_cursor_conversation(session_id: str):
     # Note: Each event's event_data BLOB is decompressed to get full payload
 
     # 2. Load database traces from SQLite raw_traces table
+    # Note: These are captured by the database monitor which reads from
+    # Cursor's ItemTable key-value pairs (aiService.generations, etc.)
+    # and converts them to database_trace events
     db_traces = await sqlite.get_database_traces(
         session_id,
-        tables=['aiService.prompts', 'aiService.generations', 'composer.composerData']
+        event_types=['database_trace']  # Filter by event_type, not table names
     )
 
     # 3. Build conversation timeline

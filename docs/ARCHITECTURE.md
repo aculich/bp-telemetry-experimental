@@ -40,12 +40,13 @@ The system is organized into three distinct layers:
 graph TB
     subgraph "Layer 1: Capture"
         HOOKS[IDE Hooks]
-        DBMON[Database Monitor]
+        EXT[Extension<br/>Session Management]
         TRANSCRIPT[Transcript Monitor]
     end
 
     subgraph "Layer 2: Processing"
         MQ[Redis Streams<br/>Message Queue]
+        DBMON[Database Monitor<br/>Polling-based]
         FAST[Fast Path<br/>Raw Ingestion]
         SLOW[Slow Path<br/>Async Workers]
         SQLITE[(SQLite<br/>Raw Traces + Conversations)]
@@ -59,8 +60,9 @@ graph TB
     end
 
     HOOKS --> MQ
-    DBMON --> MQ
+    EXT --> MQ
     TRANSCRIPT --> MQ
+    DBMON --> MQ
     MQ --> FAST
     FAST --> SQLITE
     FAST --> REDIS
@@ -79,6 +81,7 @@ graph TB
     style FAST fill:#90EE90
     style SLOW fill:#87CEEB
     style MQ fill:#FFD700
+    style DBMON fill:#FFB6C1
 ```
 
 ## Layer 1: Capture
@@ -110,9 +113,11 @@ Platform-specific hooks that capture events as they happen:
 
 For platforms like Cursor that store data in SQLite:
 
-- Monitors database file changes via filesystem watcher
-- Extracts relevant tables: `aiService.prompts`, `aiService.generations`, `composer.composerData`
-- Converts database rows to telemetry events
+- **Location**: Python processing server (`src/processing/cursor/database_monitor.py`)
+- Monitors database changes via polling (every 30 seconds by default)
+- Reads from `ItemTable` key-value pairs: `aiService.generations` and `aiService.prompts` (stored as JSON arrays)
+- Converts database data to telemetry events
+- Note: Database monitoring runs in Layer 2 (processing server), not Layer 1 (extension)
 
 #### 1.3 Transcript Monitor
 
@@ -429,6 +434,8 @@ CREATE INDEX idx_raw_session_time ON raw_traces(session_id, timestamp);
 CREATE INDEX idx_raw_event_type ON raw_traces(event_type, timestamp);
 CREATE INDEX idx_raw_date_hour ON raw_traces(event_date, event_hour);
 ```
+
+**Note**: Cursor's database (`state.vscdb`) uses a different schema with `ItemTable` key-value pairs. The database monitor reads `aiService.generations` and `aiService.prompts` as JSON arrays from `ItemTable`, not as SQL tables.
 
 **Characteristics:**
 

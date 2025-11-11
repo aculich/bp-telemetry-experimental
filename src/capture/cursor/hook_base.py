@@ -185,7 +185,10 @@ class CursorHookBase:
             Event dictionary
         """
         # Import version from package
-        sys.path.insert(0, str(Path(__file__).parent.parent))
+        # hook_base.py is in ~/.cursor/hooks/, capture module is in ~/.cursor/hooks/capture/
+        hooks_dir = Path(__file__).parent
+        if str(hooks_dir) not in sys.path:
+            sys.path.insert(0, str(hooks_dir))
         from capture import __version__
 
         event = {

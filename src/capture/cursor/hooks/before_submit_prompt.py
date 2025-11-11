@@ -35,6 +35,7 @@ class BeforeSubmitPromptHook(CursorHookBase):
         # Build event payload
         payload = {
             'prompt_length': len(prompt),
+            'prompt_text': prompt,  # Full prompt text (privacy-aware)
             'attachment_count': len(attachments),
         }
 
@@ -42,6 +43,8 @@ class BeforeSubmitPromptHook(CursorHookBase):
         if attachments:
             attachment_types = [att.get('type') for att in attachments]
             payload['attachment_types'] = attachment_types
+            # Optionally capture attachment details
+            payload['attachments'] = attachments
 
         # Build and enqueue event
         event = self.build_event(

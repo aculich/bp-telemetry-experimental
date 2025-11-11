@@ -1,7 +1,7 @@
 {
   "name": "blueplane-cursor-telemetry",
   "displayName": "Blueplane Telemetry for Cursor",
-  "description": "Session management and database monitoring for Cursor telemetry capture",
+  "description": "Session management for Cursor telemetry capture",
   "version": "0.1.0",
   "publisher": "blueplane",
   "license": "AGPL-3.0-only",
@@ -38,11 +38,6 @@
           "default": true,
           "description": "Enable Blueplane telemetry capture"
         },
-        "blueplane.databaseMonitoring": {
-          "type": "boolean",
-          "default": true,
-          "description": "Monitor Cursor's SQLite database for traces"
-        },
         "blueplane.redisHost": {
           "type": "string",
           "default": "localhost",
@@ -72,8 +67,6 @@
     "typescript": "^5.1.0"
   },
   "dependencies": {
-    "chokidar": "^3.5.3",
-    "better-sqlite3": "^9.0.0",
-    "redis": "^4.6.0"
+    "redis": "^5.0.0"
   }
 }

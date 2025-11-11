@@ -33,8 +33,8 @@ The system is built on a **three-layer architecture**:
 
 - **Purpose**: High-performance async event processing
 - **Pattern**: Fast path (writes only) + Slow path (async enrichment)
-- **Databases**: DuckDB (raw traces), SQLite (conversations), Redis (metrics)
-- **Performance**: <1ms ingestion, <5s metric updates
+- **Databases**: SQLite (raw traces + conversations), Redis (metrics + message queue)
+- **Performance**: <10ms ingestion per batch, <5s metric updates
 
 ### Layer 3: Interfaces
 
@@ -58,7 +58,7 @@ The system is built on a **three-layer architecture**:
 **Solution**:
 
 - **Fast Path**: Zero-read writes, batched inserts, fire-and-forget CDC
-- **Slow Path**: Async workers read from DuckDB, enrich, and update SQLite/Redis
+- **Slow Path**: Async workers read from SQLite raw_traces, enrich, and update conversations/metrics
 
 **Benefits**:
 
@@ -66,40 +66,41 @@ The system is built on a **three-layer architecture**:
 - Graceful degradation under load
 - Eventual consistency is acceptable for analytics
 
-### Why File-Based Message Queue?
+### Why Redis Streams for Message Queue?
 
-**Alternatives Considered**: RabbitMQ, Kafka, Redis Streams
+**Alternatives Considered**: RabbitMQ, Kafka, File-based queues
 
-**Why Files Won**:
+**Why Redis Streams Won**:
 
-- Atomic writes prevent partial messages
-- Automatic retry via filesystem
-- No network dependency or daemon required
-- Simple and reliable
-- Easy to debug (just cat the JSON files)
+- At-least-once delivery via consumer groups
+- Pending Entries List (PEL) for automatic retry
+- 100x throughput compared to file-based queues
+- Built-in observability (XINFO, XPENDING)
+- Simple deployment (single Redis instance)
+- Sub-millisecond enqueue latency
 
-### Why DuckDB, SQLite, and Redis?
+### Why SQLite and Redis?
 
-**DuckDB** (Raw Traces):
+**SQLite** (Raw Traces + Conversations):
 
-- In-process OLAP database
-- Columnar storage with excellent compression (10:1)
-- Fast analytical queries
-- Easy archival to Parquet
-
-**SQLite** (Conversations):
-
-- Embedded relational database
+- Embedded relational database with zero configuration
+- WAL mode enables concurrent reads during writes
+- zlib compression (7-10x) for raw event storage
 - ACID transactions for data integrity
-- Rich query capabilities for structured data
-- Zero configuration
+- Single file deployment (~/.blueplane/telemetry.db)
+- Fast enough for <10ms batch writes (100 events)
+- Table-level isolation: raw_traces (Layer 2 only), conversations (Layer 2 & 3)
 
-**Redis** (Real-Time Metrics):
+**Redis** (Message Queue + Metrics):
 
-- Sub-millisecond latency
-- Built-in time-series support
-- Streams for CDC work queue
+- Sub-millisecond latency for message queue
+- Streams for at-least-once delivery
+- Consumer groups for distributed processing
+- Built-in time-series support for metrics
+- CDC stream for worker coordination
 - Automatic aggregation and expiry
+
+**Note**: Initial design considered DuckDB for OLAP workloads, but SQLite proved sufficient for MVP with simpler deployment.
 
 ## Implementation Guidelines
 
@@ -114,9 +115,10 @@ The system is built on a **three-layer architecture**:
 
 **Fast Path** (Critical):
 
-- <1ms P95 for event ingestion
+- <10ms P95 for batch ingestion (100 events)
 - Zero database reads
-- Batched writes (100 events or 100ms)
+- Batched writes (100 events or 100ms timeout)
+- zlib compression before SQLite write
 - Errors logged but never block
 
 **Slow Path** (Important):
@@ -129,7 +131,7 @@ The system is built on a **three-layer architecture**:
 **Layer 3** (User-Facing):
 
 - <100ms P95 for CLI queries
-- Only access SQLite and Redis (never DuckDB)
+- Only access SQLite conversations and Redis metrics (never raw_traces table)
 - Proper pagination for large result sets
 - Beautiful terminal output with Rich
 
@@ -184,7 +186,8 @@ blueplane-telemetry-core/
 
 ### External Resources
 
-- [DuckDB Documentation](https://duckdb.org/docs/)
+- [SQLite Documentation](https://www.sqlite.org/docs.html)
+- [SQLite WAL Mode](https://www.sqlite.org/wal.html)
 - [Redis Streams](https://redis.io/docs/data-types/streams/)
 - [FastAPI Best Practices](https://fastapi.tiangolo.com/tutorial/)
 - [Rich Documentation](https://rich.readthedocs.io/)

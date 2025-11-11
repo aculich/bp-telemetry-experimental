@@ -89,7 +89,8 @@ graph TB
 
 **Platform-Specific Enhancements**:
 
-- **Cursor**: Enhanced accuracy using `aiService.generations` database
+- **Cursor**: Enhanced accuracy using database monitor data
+  - Database monitor reads `aiService.generations` from `ItemTable` (JSON array)
   - True Accept Rate: `(linesAdded - linesRemoved) / linesGenerated`
   - Generation Accept Rate by type (composer, chat, inline)
 
@@ -263,11 +264,13 @@ productivity_score = clamp(0, 100,
 
 #### 7.1 Generation Metrics
 
-**Description**: Metrics from Cursor's internal database
+**Description**: Metrics from Cursor's internal database (via database monitor)
+
+**Note**: The database monitor reads `aiService.generations` from Cursor's `ItemTable` key-value pairs (stored as JSON arrays), not from SQL tables.
 
 | Metric                | Source                  | Platform | Unit         |
 | --------------------- | ----------------------- | -------- | ------------ |
-| True Accept Rate      | `aiService.generations` | Cursor   | %            |
+| True Accept Rate      | Database monitor (`ItemTable` → `aiService.generations`) | Cursor   | %            |
 | Generation UUID       | Unique per generation   | Cursor   | UUID         |
 | Total Lines Generated | Database aggregate      | Cursor   | lines        |
 | Generation Type       | composer/chat/inline    | Cursor   | distribution |

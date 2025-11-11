@@ -37,7 +37,9 @@ class AfterMCPExecutionHook(CursorHookBase):
         payload = {
             'tool_name': tool_name,
             'input_size': len(str(tool_input)),
+            'tool_input': tool_input,  # Full tool input (privacy-aware)
             'output_size': len(str(result_json)),
+            'result_json': result_json,  # Full result (privacy-aware)
         }
 
         # Build and enqueue event
