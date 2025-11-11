@@ -22,6 +22,8 @@ from .database.schema import create_schema
 from .database.writer import SQLiteBatchWriter
 from .fast_path.consumer import FastPathConsumer
 from .fast_path.cdc_publisher import CDCPublisher
+from .cursor.session_monitor import SessionMonitor
+from .cursor.database_monitor import CursorDatabaseMonitor
 from ..capture.shared.config import Config
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,8 @@ class TelemetryServer:
         self.redis_client: Optional[redis.Redis] = None
         self.cdc_publisher: Optional[CDCPublisher] = None
         self.consumer: Optional[FastPathConsumer] = None
+        self.session_monitor: Optional[SessionMonitor] = None
+        self.cursor_monitor: Optional[CursorDatabaseMonitor] = None
         self.running = False
 
     def _initialize_database(self) -> None:
@@ -124,6 +128,33 @@ class TelemetryServer:
         
         logger.info("Fast path consumer initialized")
 
+    def _initialize_cursor_monitor(self) -> None:
+        """Initialize Cursor database monitor."""
+        # Check if cursor monitoring is enabled (default: True)
+        # For now, we'll enable it by default. Can be made configurable later.
+        enabled = True  # TODO: Load from config
+        
+        if not enabled:
+            logger.info("Cursor database monitoring is disabled")
+            return
+        
+        logger.info("Initializing Cursor database monitor")
+        
+        # Create session monitor
+        self.session_monitor = SessionMonitor(self.redis_client)
+        
+        # Create database monitor
+        self.cursor_monitor = CursorDatabaseMonitor(
+            redis_client=self.redis_client,
+            session_monitor=self.session_monitor,
+            poll_interval=30.0,
+            sync_window_hours=24,
+            query_timeout=1.5,
+            max_retries=3,
+        )
+        
+        logger.info("Cursor database monitor initialized")
+
     async def start(self) -> None:
         """Start the server."""
         if self.running:
@@ -137,8 +168,14 @@ class TelemetryServer:
             self._initialize_database()
             self._initialize_redis()
             self._initialize_consumer()
+            self._initialize_cursor_monitor()
 
-            # Start consumer
+            # Start cursor monitor (if enabled) - runs concurrently
+            if self.session_monitor and self.cursor_monitor:
+                await self.session_monitor.start()
+                await self.cursor_monitor.start()
+
+            # Start consumer (this blocks)
             self.running = True
             await self.consumer.run()
 
@@ -153,6 +190,12 @@ class TelemetryServer:
 
         logger.info("Stopping server...")
         self.running = False
+
+        if self.cursor_monitor:
+            await self.cursor_monitor.stop()
+
+        if self.session_monitor:
+            await self.session_monitor.stop()
 
         if self.consumer:
             self.consumer.stop()
