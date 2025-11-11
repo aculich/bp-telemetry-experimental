@@ -1,0 +1,79 @@
+{
+  "name": "blueplane-cursor-telemetry",
+  "displayName": "Blueplane Telemetry for Cursor",
+  "description": "Session management and database monitoring for Cursor telemetry capture",
+  "version": "0.1.0",
+  "publisher": "blueplane",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "blueplane.showStatus",
+        "title": "Blueplane: Show Session Status"
+      },
+      {
+        "command": "blueplane.newSession",
+        "title": "Blueplane: Start New Session"
+      },
+      {
+        "command": "blueplane.stopSession",
+        "title": "Blueplane: Stop Current Session"
+      }
+    ],
+    "configuration": {
+      "title": "Blueplane Telemetry",
+      "properties": {
+        "blueplane.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Blueplane telemetry capture"
+        },
+        "blueplane.databaseMonitoring": {
+          "type": "boolean",
+          "default": true,
+          "description": "Monitor Cursor's SQLite database for traces"
+        },
+        "blueplane.redisHost": {
+          "type": "string",
+          "default": "localhost",
+          "description": "Redis server host"
+        },
+        "blueplane.redisPort": {
+          "type": "number",
+          "default": 6379,
+          "description": "Redis server port"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^5.60.0",
+    "@typescript-eslint/parser": "^5.60.0",
+    "eslint": "^8.43.0",
+    "typescript": "^5.1.0"
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "better-sqlite3": "^9.0.0",
+    "redis": "^4.6.0"
+  }
+}

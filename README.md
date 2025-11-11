@@ -36,9 +36,56 @@ See [Architecture Overview](./docs/ARCHITECTURE.md) for detailed information.
 
 ## Quick Start
 
-### Installation
+### Installation (Cursor)
 
-TBD
+**Prerequisites:**
+- Python 3.11+
+- Redis server
+- Cursor IDE
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/blueplane-ai/bp-telemetry-core.git
+cd bp-telemetry-core
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Start Redis server
+redis-server
+
+# 4. Initialize Redis streams
+python scripts/init_redis.py
+
+# 5. Install hooks to your Cursor workspace
+python scripts/install_cursor.py --workspace /path/to/your/project
+
+# 6. Verify installation
+python scripts/verify_installation.py --workspace /path/to/your/project
+```
+
+**Optional: Install Cursor Extension**
+
+For database monitoring and automatic session management:
+
+```bash
+cd src/capture/cursor/extension
+npm install
+npm run compile
+# Then install the VSIX in Cursor
+```
+
+### Verification
+
+After installation, hooks will automatically capture events as you work in Cursor:
+
+```bash
+# Check Redis queue
+redis-cli XLEN telemetry:events
+
+# View recent events
+redis-cli XREAD COUNT 5 STREAMS telemetry:events 0-0
+```
 
 ## Use Cases
 
@@ -129,12 +176,26 @@ Blueplane Telemetry Core is optimized for minimal overhead:
 
 ### Phase 1: MVP (Current)
 
-- [ ] Layer 1 capture for Claude Code and Cursor
+- [x] **Layer 1 capture for Cursor** (✅ Complete)
+  - [x] 9 Python hook scripts
+  - [x] TypeScript VSCode extension
+  - [x] Database monitoring
+  - [x] Redis Streams message queue
+  - [x] Installation scripts
+- [ ] Layer 1 capture for Claude Code
 - [ ] Layer 2 async pipeline with fast/slow paths
 - [ ] Layer 3 CLI interface
 - [ ] Core metrics and analytics
 - [ ] MCP Server implementation
 - [ ] Web Dashboard (basic)
+
+### Phase 2: Analytics & Insights
+
+- [ ] Advanced metrics derivation
+- [ ] Conversation reconstruction
+- [ ] AI-powered insights
+- [ ] Pattern recognition
+- [ ] Workflow optimization suggestions
 
 ## Contributing
 
@@ -142,7 +203,54 @@ We welcome contributions! See the documentation in [./docs/](./docs/) for techni
 
 ### Development Setup
 
-TBD
+```bash
+# Clone repository
+git clone https://github.com/blueplane-ai/bp-telemetry-core.git
+cd bp-telemetry-core
+
+# Install development dependencies
+pip install -r requirements.txt
+pip install pytest pytest-asyncio black mypy
+
+# Run tests
+pytest src/capture/tests/
+
+# Format code
+black src/
+
+# Type check
+mypy src/
+```
+
+### Project Structure
+
+```
+bp-telemetry-core/
+├── src/
+│   └── capture/              # Layer 1 implementation ✅
+│       ├── shared/           # Shared components
+│       │   ├── queue_writer.py
+│       │   ├── event_schema.py
+│       │   ├── config.py
+│       │   └── privacy.py
+│       ├── cursor/           # Cursor platform
+│       │   ├── hooks/        # 9 hook scripts
+│       │   │   ├── before_submit_prompt.py
+│       │   │   ├── after_agent_response.py
+│       │   │   └── ...
+│       │   └── extension/    # VSCode extension
+│       └── tests/            # Unit tests
+├── config/
+│   ├── redis.yaml           # Redis configuration
+│   └── privacy.yaml         # Privacy settings
+├── scripts/
+│   ├── init_redis.py        # Initialize Redis
+│   ├── install_cursor.py    # Install to Cursor
+│   └── verify_installation.py
+├── docs/
+│   └── architecture/        # Architecture docs
+└── README.md
+```
 
 ## License
 
