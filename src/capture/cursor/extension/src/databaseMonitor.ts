@@ -265,14 +265,34 @@ export class DatabaseMonitor {
     if (!this.db) return;
 
     try {
-      // Query new generations
-      const generations = this.db
-        .prepare(
-          `SELECT * FROM "aiService.generations"
-         WHERE data_version > ? AND data_version <= ?
-         ORDER BY data_version ASC`
-        )
-        .all(fromVersion, toVersion) as any[];
+      // Query new generations with associated prompts (if table exists)
+      // Try to join with prompts table to get prompt text
+      let generations: any[];
+      
+      try {
+        generations = this.db
+          .prepare(
+            `SELECT 
+              g.*,
+              p.text as prompt_text,
+              p.timestamp as prompt_timestamp
+             FROM "aiService.generations" g
+             LEFT JOIN "aiService.prompts" p ON json_extract(g.value, '$.promptId') = p.uuid
+             WHERE g.data_version > ? AND g.data_version <= ?
+             ORDER BY g.data_version ASC`
+          )
+          .all(fromVersion, toVersion) as any[];
+      } catch (joinError) {
+        // If join fails (table doesn't exist or schema mismatch), fall back to simple query
+        console.debug("Could not join prompts table, using simple query:", joinError);
+        generations = this.db
+          .prepare(
+            `SELECT * FROM "aiService.generations"
+             WHERE data_version > ? AND data_version <= ?
+             ORDER BY data_version ASC`
+          )
+          .all(fromVersion, toVersion) as any[];
+      }
 
       console.log(`Found ${generations.length} new generations`);
 
@@ -320,8 +340,27 @@ export class DatabaseMonitor {
           trace_type: "generation",
           generation_id: gen.uuid,
           data_version: gen.data_version,
+          
+          // Model and token info
           model: value?.model || "unknown",
           tokens_used: value?.tokensUsed || value?.completionTokens || 0,
+          prompt_tokens: value?.promptTokens || 0,
+          completion_tokens: value?.completionTokens || 0,
+          
+          // Full content (privacy-aware)
+          response_text: value?.responseText || value?.text || "",
+          prompt_text: gen.prompt_text || "",  // From joined prompts table
+          prompt_id: value?.promptId || "",
+          
+          // Request metadata
+          request_parameters: value?.requestParameters || {},
+          
+          // Timestamps
+          generation_timestamp: value?.timestamp || gen.timestamp || "",
+          prompt_timestamp: gen.prompt_timestamp || "",
+          
+          // Include full value for complete capture
+          full_generation_data: value,
         },
         metadata: {
           workspace_hash: session.workspaceHash,

@@ -1,0 +1,463 @@
+# Hooks vs Database Traces: Organization & Relationships
+
+**Created**: November 11, 2025
+
+---
+
+## Overview
+
+Both **hooks** and **database traces** are stored in the same `raw_traces` table, but they capture different aspects of the AI coding workflow. They're **complementary** data sources that get correlated by `session_id` and `timestamp`.
+
+---
+
+## 1. Unified Storage: `raw_traces` Table
+
+### **Schema**
+
+```sql
+CREATE TABLE raw_traces (
+    -- Sequential ID
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Event identification
+    event_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,        -- ✅ Correlation key
+    event_type TEXT NOT NULL,        -- ✅ Distinguishes hook vs trace
+    platform TEXT NOT NULL,          -- "cursor" or "claude_code"
+    timestamp TIMESTAMP NOT NULL,    -- ✅ Temporal ordering
+
+    -- Context (indexed for fast queries)
+    workspace_hash TEXT,             -- ✅ Correlation key
+    model TEXT,
+    tool_name TEXT,
+
+    -- Metrics
+    duration_ms INTEGER,
+    tokens_used INTEGER,
+    lines_added INTEGER,
+    lines_removed INTEGER,
+
+    -- Full event data (compressed with zlib)
+    event_data BLOB NOT NULL,
+
+    -- Partitioning columns
+    event_date DATE GENERATED ALWAYS AS (DATE(timestamp)),
+    event_hour INTEGER GENERATED ALWAYS AS (CAST(strftime('%H', timestamp) AS INTEGER))
+);
+```
+
+### **Key Indexes**
+
+```sql
+CREATE INDEX idx_session_time ON raw_traces(session_id, timestamp);
+CREATE INDEX idx_event_type_time ON raw_traces(event_type, timestamp);
+CREATE INDEX idx_timestamp ON raw_traces(timestamp DESC);
+```
+
+---
+
+## 2. Event Types: Hooks vs Traces
+
+### **Hook Events** (Real-time Interception)
+
+| event_type           | hook_type                                      | Source               | What it Captures                   |
+| -------------------- | ---------------------------------------------- | -------------------- | ---------------------------------- |
+| `user_prompt`        | `beforeSubmitPrompt`                           | Python Hook          | User prompt text, attachments      |
+| `assistant_response` | `afterAgentResponse`                           | Python Hook          | AI response text, tokens, model    |
+| `file_edit`          | `afterFileEdit`                                | Python Hook          | File changes (lines added/removed) |
+| `file_read`          | `beforeReadFile`                               | Python Hook          | Files read by AI                   |
+| `mcp_execution`      | `beforeMCPExecution` / `afterMCPExecution`     | Python Hook          | Tool calls & results               |
+| `shell_execution`    | `beforeShellExecution` / `afterShellExecution` | Python Hook          | Commands & output                  |
+| `session_start`      | `session`                                      | TypeScript Extension | Session lifecycle                  |
+| `session_end`        | `stop`                                         | Python Hook          | Session termination                |
+
+### **Database Trace Events** (Database Polling)
+
+| event_type       | hook_type       | Source               | What it Captures                         |
+| ---------------- | --------------- | -------------------- | ---------------------------------------- |
+| `database_trace` | `DatabaseTrace` | TypeScript Extension | AI generations from Cursor's internal DB |
+
+---
+
+## 3. How They Relate
+
+### **A. Same Session, Different Sources**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Cursor IDE Session                        │
+│                session_id: curs_1731320400_abc123           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────────────┐       ┌────────────────────────┐ │
+│  │   Python Hooks       │       │  Database Monitor      │ │
+│  │   (Real-time)        │       │  (Polling every 30s)   │ │
+│  └──────────┬───────────┘       └──────────┬─────────────┘ │
+│             │                               │               │
+│             │ Captures:                     │ Captures:     │
+│             │ - User prompts                │ - Generations │
+│             │ - AI responses                │ - Prompt text │
+│             │ - File edits                  │ - Token usage │
+│             │ - Shell commands              │ - Model info  │
+│             │ - Tool calls                  │               │
+│             │                               │               │
+│             ▼                               ▼               │
+│        ┌────────────────────────────────────────┐          │
+│        │        Redis Streams Queue            │          │
+│        │      telemetry:events                 │          │
+│        └────────────────┬───────────────────────┘          │
+│                         │                                   │
+│                         ▼                                   │
+│               ┌──────────────────┐                         │
+│               │  Fast Path       │                         │
+│               │  Consumer        │                         │
+│               └────────┬─────────┘                         │
+│                        │                                    │
+│                        ▼                                    │
+│               ┌────────────────────┐                       │
+│               │   raw_traces       │                       │
+│               │   (SQLite)         │                       │
+│               │                    │                       │
+│               │  All events with   │                       │
+│               │  same session_id   │                       │
+│               └────────────────────┘                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### **B. Correlation Keys**
+
+Events are correlated using these fields:
+
+1. **`session_id`** - Groups all events from the same Cursor session
+2. **`timestamp`** - Orders events chronologically
+3. **`workspace_hash`** - Groups events by workspace/project
+4. **`generation_id`** (in payload) - Links hooks to specific AI generations
+
+### **C. Example: Single AI Interaction**
+
+Here's how one AI interaction creates multiple related events:
+
+```sql
+-- Timeline of a single AI interaction
+
+sequence | timestamp           | event_type           | hook_type            | session_id
+---------|---------------------|----------------------|---------------------|----------------
+1001     | 2025-11-11 10:30:45 | user_prompt         | beforeSubmitPrompt  | curs_173132...
+1002     | 2025-11-11 10:30:49 | assistant_response  | afterAgentResponse  | curs_173132...
+1003     | 2025-11-11 10:30:50 | database_trace      | DatabaseTrace       | curs_173132...
+1004     | 2025-11-11 10:30:52 | mcp_execution       | beforeMCPExecution  | curs_173132...
+1005     | 2025-11-11 10:30:53 | mcp_execution       | afterMCPExecution   | curs_173132...
+1006     | 2025-11-11 10:30:55 | file_edit           | afterFileEdit       | curs_173132...
+```
+
+**Event Details:**
+
+```json
+// Event 1001: User Prompt Hook
+{
+  "event_type": "user_prompt",
+  "hook_type": "beforeSubmitPrompt",
+  "session_id": "curs_1731320400_abc123",
+  "timestamp": "2025-11-11T10:30:45.000Z",
+  "payload": {
+    "prompt_text": "Write a function to sort arrays",
+    "prompt_length": 32,
+    "attachment_count": 0
+  }
+}
+
+// Event 1002: AI Response Hook
+{
+  "event_type": "assistant_response",
+  "hook_type": "afterAgentResponse",
+  "session_id": "curs_1731320400_abc123",
+  "timestamp": "2025-11-11T10:30:49.000Z",
+  "payload": {
+    "response_text": "Here's a sorting function...",
+    "response_length": 450,
+    "model": "claude-sonnet-4-5",
+    "tokens": 1250,
+    "duration_ms": 3400
+  }
+}
+
+// Event 1003: Database Trace (SUPPLEMENTARY)
+{
+  "event_type": "database_trace",
+  "hook_type": "DatabaseTrace",
+  "session_id": "curs_1731320400_abc123",
+  "timestamp": "2025-11-11T10:30:50.000Z",
+  "payload": {
+    "trace_type": "generation",
+    "generation_id": "gen-uuid-xyz",
+    "prompt_text": "Write a function to sort arrays",  // ✅ From DB
+    "response_text": "Here's a sorting function...",   // ✅ From DB
+    "model": "claude-sonnet-4-5",
+    "tokens_used": 1250,
+    "prompt_tokens": 450,
+    "completion_tokens": 800,
+    "full_generation_data": {...}  // Complete DB record
+  }
+}
+```
+
+---
+
+## 4. Complementary Nature: Hooks vs Traces
+
+### **Why Have Both?**
+
+| Aspect          | Hooks                         | Database Traces              |
+| --------------- | ----------------------------- | ---------------------------- |
+| **Timing**      | Real-time (immediate)         | Delayed (30s polling)        |
+| **Coverage**    | All IDE actions               | Only AI generations          |
+| **Reliability** | May miss events if hook fails | Always captures what's in DB |
+| **Content**     | What hooks can intercept      | Full DB records              |
+| **Granularity** | Before/after for each action  | Final generation state       |
+
+### **Hooks Capture What DB Can't:**
+
+- ✅ File edits (lines added/removed)
+- ✅ Shell commands and output
+- ✅ MCP tool calls and results
+- ✅ File reads
+- ✅ Real-time sequence of events
+
+### **Database Traces Capture What Hooks Might Miss:**
+
+- ✅ **Backup for hooks**: If a hook fails, DB trace still captures the generation
+- ✅ **Complete generation data**: Full JSON from Cursor's internal database
+- ✅ **Prompt history**: From `aiService.prompts` table (joined)
+- ✅ **Request parameters**: Model settings, temperature, etc.
+- ✅ **UUIDs for correlation**: Generation IDs that link prompts to responses
+
+---
+
+## 5. Query Examples: Using Both Together
+
+### **A. Full Session Timeline**
+
+```sql
+-- Get all events for a session (hooks + traces)
+SELECT
+    sequence,
+    timestamp,
+    event_type,
+    hook_type,
+    model,
+    tokens_used,
+    CASE
+        WHEN event_type = 'database_trace' THEN '📊 DB Trace'
+        ELSE '🔗 Hook'
+    END as source
+FROM raw_traces
+WHERE session_id = 'curs_1731320400_abc123'
+ORDER BY timestamp;
+```
+
+### **B. Compare Hook vs Trace for Same Generation**
+
+```sql
+-- Find hook event and its corresponding database trace
+SELECT
+    r1.event_type as hook_event,
+    r1.timestamp as hook_time,
+    json_extract(r1.event_data, '$.payload.response_text') as hook_response,
+    r2.event_type as trace_event,
+    r2.timestamp as trace_time,
+    json_extract(r2.event_data, '$.payload.response_text') as trace_response,
+    (julianday(r2.timestamp) - julianday(r1.timestamp)) * 86400 as delay_seconds
+FROM raw_traces r1
+LEFT JOIN raw_traces r2
+    ON r1.session_id = r2.session_id
+    AND r2.event_type = 'database_trace'
+    AND abs(julianday(r2.timestamp) - julianday(r1.timestamp)) * 86400 < 10
+WHERE r1.event_type = 'assistant_response'
+    AND r1.session_id = 'curs_1731320400_abc123'
+ORDER BY r1.timestamp;
+```
+
+### **C. Detect Missing Hooks (DB Has It, Hook Doesn't)**
+
+```sql
+-- Find generations captured by DB but not by hooks
+-- (Indicates hook failure or race condition)
+SELECT
+    json_extract(event_data, '$.payload.generation_id') as generation_id,
+    timestamp,
+    'Missing hook event' as issue
+FROM raw_traces
+WHERE event_type = 'database_trace'
+    AND session_id = 'curs_1731320400_abc123'
+    AND json_extract(event_data, '$.payload.generation_id') NOT IN (
+        SELECT json_extract(event_data, '$.payload.generation_id')
+        FROM raw_traces
+        WHERE event_type = 'assistant_response'
+            AND session_id = 'curs_1731320400_abc123'
+    );
+```
+
+### **D. Session Summary (Hooks + Traces)**
+
+```sql
+-- Aggregate metrics from both sources
+SELECT
+    session_id,
+    MIN(timestamp) as session_start,
+    MAX(timestamp) as session_end,
+
+    -- Hook events
+    COUNT(CASE WHEN event_type = 'user_prompt' THEN 1 END) as prompts,
+    COUNT(CASE WHEN event_type = 'assistant_response' THEN 1 END) as responses,
+    COUNT(CASE WHEN event_type = 'file_edit' THEN 1 END) as file_edits,
+    COUNT(CASE WHEN event_type = 'shell_execution' THEN 1 END) as shell_commands,
+
+    -- Database traces
+    COUNT(CASE WHEN event_type = 'database_trace' THEN 1 END) as db_generations,
+
+    -- Metrics
+    SUM(tokens_used) as total_tokens,
+    SUM(lines_added) as total_lines_added,
+    SUM(lines_removed) as total_lines_removed
+FROM raw_traces
+WHERE session_id = 'curs_1731320400_abc123'
+GROUP BY session_id;
+```
+
+---
+
+## 6. Data Flow Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       LAYER 1: CAPTURE                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  [Python Hooks]                    [TypeScript Extension]       │
+│       │                                      │                  │
+│       │ Real-time Events                    │ Database Polling │
+│       │ (hooks fire on actions)             │ (every 30s)      │
+│       ▼                                      ▼                  │
+│  ┌──────────────────────────────────────────────────┐          │
+│  │         Redis Streams: telemetry:events          │          │
+│  │  [Hook Events] + [Database Trace Events]         │          │
+│  └──────────────────────┬───────────────────────────┘          │
+│                         │                                       │
+└─────────────────────────┼───────────────────────────────────────┘
+                          │
+┌─────────────────────────┼───────────────────────────────────────┐
+│                       LAYER 2: PROCESSING                       │
+├─────────────────────────┼───────────────────────────────────────┤
+│                         ▼                                       │
+│              ┌────────────────────┐                            │
+│              │  Fast Path Consumer │                           │
+│              │  (Redis → SQLite)   │                           │
+│              └──────────┬──────────┘                            │
+│                         │                                       │
+│                         ▼                                       │
+│              ┌────────────────────┐                            │
+│              │   raw_traces       │                            │
+│              │   (SQLite)         │                            │
+│              │                    │                            │
+│              │  • event_type      │ ◄─ Distinguishes hook/trace│
+│              │  • hook_type       │                            │
+│              │  • session_id      │ ◄─ Correlation key         │
+│              │  • timestamp       │ ◄─ Ordering key            │
+│              │  • event_data BLOB │ ◄─ Full content (compressed)│
+│              └──────────┬──────────┘                            │
+│                         │                                       │
+│                         │ CDC Events                            │
+│                         ▼                                       │
+│              ┌────────────────────┐                            │
+│              │  Slow Path Workers │                            │
+│              │  (future)          │                            │
+│              │                    │                            │
+│              │  • Conversation    │ ◄─ Correlates hooks + traces│
+│              │    Reconstruction  │    by session_id           │
+│              │  • Metrics Worker  │                            │
+│              └──────────┬──────────┘                            │
+│                         │                                       │
+│                         ▼                                       │
+│              ┌────────────────────┐                            │
+│              │  conversations     │                            │
+│              │  (SQLite)          │                            │
+│              │                    │                            │
+│              │  Structured data   │                            │
+│              │  from both sources │                            │
+│              └────────────────────┘                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 7. Key Takeaways
+
+### **✅ Single Storage, Dual Sources**
+
+- Both hooks and traces go into `raw_traces` table
+- Distinguished by `event_type` and `hook_type` fields
+- No separate tables needed
+
+### **✅ Correlation, Not Relations**
+
+- Events are **correlated** by `session_id` and `timestamp`
+- No foreign key constraints (temporal correlation)
+- Join via `session_id` + time proximity
+
+### **✅ Complementary Data**
+
+- Hooks: Real-time, comprehensive coverage
+- Traces: Delayed, but reliable backup + extra metadata
+- Together: Complete picture of AI coding session
+
+### **✅ Fault Tolerance**
+
+- If hook fails → DB trace still captures generation
+- If DB polling delayed → Hook already captured it
+- Redundancy ensures no data loss
+
+### **✅ Future: Conversation Reconstruction**
+
+- Slow path workers will read both event types
+- Correlate by `session_id` and `generation_id`
+- Build structured conversations in `conversations` table
+
+---
+
+## 8. Practical Example: One Prompt-Response Cycle
+
+```
+10:30:45.000 | user_prompt         | beforeSubmitPrompt  | Hook captures prompt
+10:30:49.000 | assistant_response  | afterAgentResponse  | Hook captures response
+10:30:50.500 | database_trace      | DatabaseTrace       | DB trace confirms + adds metadata
+             |                     |                     |
+             └─────────────────────┴─────────────────────┤
+                                                          │
+                         All have same session_id:       │
+                         curs_1731320400_abc123          │
+                                                          │
+Query to reconstruct:                                     │
+SELECT * FROM raw_traces                                  │
+WHERE session_id = 'curs_1731320400_abc123'              │
+  AND timestamp BETWEEN '10:30:45' AND '10:30:51'        │
+ORDER BY timestamp;                                       │
+```
+
+**Result:**
+
+- 3 events, same session
+- Hooks provide real-time capture
+- DB trace provides backup + full generation data
+- Together: complete, redundant, reliable capture
+
+---
+
+**Document Status**: Production  
+**Last Updated**: November 11, 2025  
+**Related Docs**:
+
+- [Architecture Overview](ARCHITECTURE.md)
+- [Database Schema](architecture/layer2_db_architecture.md)
+- [Conversation Reconstruction](architecture/layer2_conversation_reconstruction.md)
+

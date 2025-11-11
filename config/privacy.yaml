@@ -12,8 +12,8 @@ privacy:
   # Data categories to opt out of capturing
   # Currently supported in hooks:
   opt_out:
-    - file_paths      # Hash file paths instead of storing
-    - error_messages  # Redact error messages to error type only
+    # - file_paths      # Hash file paths instead of storing
+    # - error_messages  # Redact error messages to error type only
 
   # NOTE: Future implementation (Layer 2):
   # - Comprehensive data sanitization

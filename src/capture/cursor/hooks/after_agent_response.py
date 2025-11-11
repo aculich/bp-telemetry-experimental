@@ -30,10 +30,17 @@ class AfterAgentResponseHook(CursorHookBase):
         """Execute hook logic."""
         # Extract response data from stdin
         text = self.input_data.get('text', '')
+        model = self.input_data.get('model', '')
+        tokens = self.input_data.get('tokens', 0)
+        duration_ms = self.input_data.get('duration_ms', 0)
 
         # Build event payload
         payload = {
             'response_length': len(text),
+            'response_text': text,  # Full response text (privacy-aware)
+            'model': model,
+            'tokens': tokens,
+            'duration_ms': duration_ms,
         }
 
         # Build and enqueue event

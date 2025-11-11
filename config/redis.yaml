@@ -14,9 +14,9 @@ redis:
   # Connection pool configuration
   connection_pool:
     max_connections: 10
-    socket_timeout: 1.0
-    socket_connect_timeout: 1.0
-    retry_on_timeout: false
+    socket_timeout: 5.0           # Increased to 5s (must be > block_ms)
+    socket_connect_timeout: 2.0   # Increased to 2s for initial connection
+    retry_on_timeout: true        # Retry on timeout
     health_check_interval: 30
 
   # Performance tuning
