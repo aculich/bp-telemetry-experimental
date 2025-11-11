@@ -13,7 +13,7 @@ import json
 import asyncio
 import logging
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from collections import deque
 import redis
 
@@ -84,6 +84,7 @@ class FastPathConsumer:
         self.min_batch_size = 10  # Minimum batch size
         self.max_batch_size = batch_size  # Maximum batch size
         self.write_times = deque(maxlen=100)  # Track write latencies for backpressure
+        self.pending_retry_idle_ms = max(int(batch_timeout * 1000), 100)
 
     async def _ensure_consumer_group(self) -> None:
         """Ensure consumer group exists, create if not."""
@@ -102,62 +103,44 @@ class FastPathConsumer:
             else:
                 raise
 
-    def _parse_redis_message(self, message_id: Any, fields: Dict[Any, Any]) -> Dict[str, Any]:
+    def _decode_stream_message(self, message_id: str, fields: Dict[Any, Any]) -> Optional[Dict[str, Any]]:
         """
-        Parse a Redis Stream message into a structured event dictionary.
-        
+        Decode Redis Stream fields into an event dictionary.
+
         Args:
-            message_id: Redis message ID (bytes or str)
-            fields: Dictionary of field key-value pairs from Redis
-            
+            message_id: Redis Stream message ID
+            fields: Raw fields returned by Redis
+
         Returns:
-            Dictionary with 'id', 'event', and optionally 'error' keys
+            Event dictionary or None if decoding failed
         """
-        msg_id = message_id.decode('utf-8') if isinstance(message_id, bytes) else str(message_id)
-        
         try:
-            event = {}
-            
-            # Helper to decode field value
-            def decode_field(key, value):
-                if isinstance(value, bytes):
-                    return value.decode('utf-8')
-                return str(value)
-            
-            # Copy top-level fields
+            event: Dict[str, Any] = {}
+
             for key, value in fields.items():
-                key_str = key.decode('utf-8') if isinstance(key, bytes) else str(key)
-                val_str = decode_field(key_str, value)
-                
-                # Parse JSON fields (payload, metadata)
-                if key_str in ('payload', 'metadata'):
+                key_str = key.decode("utf-8") if isinstance(key, bytes) else str(key)
+                if isinstance(value, bytes):
+                    val_str = value.decode("utf-8")
+                else:
+                    val_str = str(value)
+
+                if key_str in ("payload", "metadata"):
                     try:
                         event[key_str] = json.loads(val_str)
                     except json.JSONDecodeError:
                         event[key_str] = {}
                 else:
-                    # Store other fields as-is
                     event[key_str] = val_str
-            
-            # Ensure required fields exist
-            if 'event_id' not in event:
-                event['event_id'] = msg_id
-            if 'session_id' not in event:
-                # Use external_session_id if available
-                event['session_id'] = event.get('external_session_id', '')
-            
-            return {
-                'id': msg_id,
-                'event': event
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to parse event from message {msg_id}: {e}")
-            return {
-                'id': msg_id,
-                'event': None,
-                'error': str(e)
-            }
+
+            if "event_id" not in event:
+                event["event_id"] = message_id
+            if "session_id" not in event:
+                event["session_id"] = event.get("external_session_id", "")
+
+            return event
+        except Exception as exc:
+            logger.error(f"Failed to parse event from message {message_id}: {exc}")
+            return None
 
     async def _read_messages(self) -> List[Dict[str, Any]]:
         """
@@ -180,11 +163,17 @@ class FastPathConsumer:
             if not messages:
                 return []
 
-            # Parse messages using shared parser
+            # Parse messages
             result = []
             for stream_name, stream_messages in messages:
                 for message_id, fields in stream_messages:
-                    result.append(self._parse_redis_message(message_id, fields))
+                    # Convert message_id to string
+                    msg_id = message_id.decode('utf-8') if isinstance(message_id, bytes) else str(message_id)
+                    event = self._decode_stream_message(msg_id, fields)
+                    result.append({
+                        'id': msg_id,
+                        'event': event
+                    })
 
             return result
 
@@ -371,28 +360,89 @@ class FastPathConsumer:
             if not pending:
                 return
 
-            # Claim messages that are older than retry timeout
-            # For immediate retry, use 0 min_idle_time (messages already delivered to this consumer)
-            message_ids = [msg['message_id'] for msg in pending]
-            if message_ids:
-                claimed = self.redis_client.xclaim(
-                    self.stream_name,
-                    self.consumer_group,
-                    self.consumer_name,
-                    min_idle_time=0,  # Claim immediately for this consumer
-                    message_ids=message_ids
-                )
+            retry_ids: List[str] = []
+            dlq_candidates: Dict[str, int] = {}
 
-                # Process claimed messages using shared parser
-                if claimed:
+            for entry in pending:
+                message_id = entry.get('message_id')
+                if not message_id:
+                    continue
+
+                # Redis-py returns message_id as string
+                msg_id_str = str(message_id)
+                delivery_count = entry.get('delivery_count', 0)
+                idle_time_ms = entry.get('idle', 0)
+
+                if delivery_count >= self.max_retries:
+                    dlq_candidates[msg_id_str] = delivery_count
+                elif idle_time_ms >= self.pending_retry_idle_ms:
+                    retry_ids.append(msg_id_str)
+
+            # First, move messages that exceeded retry limit to DLQ
+            if dlq_candidates:
+                try:
+                    claimed_dlq = self.redis_client.xclaim(
+                        self.stream_name,
+                        self.consumer_group,
+                        self.consumer_name,
+                        min_idle_time=0,
+                        message_ids=list(dlq_candidates.keys())
+                    )
+                except Exception as claim_error:
+                    logger.error(f"Failed to claim DLQ candidates: {claim_error}")
+                    claimed_dlq = []
+
+                for msg_id, fields in claimed_dlq:
+                    msg_id_str = msg_id.decode('utf-8') if isinstance(msg_id, bytes) else str(msg_id)
+                    event = self._decode_stream_message(msg_id_str, fields)
+                    retry_count = dlq_candidates.get(msg_id_str, self.max_retries)
+
+                    await self._handle_failed_message(msg_id_str, event, retry_count=retry_count)
+
+                    try:
+                        self.redis_client.xack(self.stream_name, self.consumer_group, msg_id_str)
+                    except Exception as ack_error:
+                        logger.error(f"Failed to ACK DLQ message {msg_id_str}: {ack_error}")
+
+                    # Ensure duplicates aren't processed later
+                    self.batch_manager.remove_message_ids([msg_id_str])
+
+            # Reprocess pending messages that have been idle long enough
+            if retry_ids:
+                try:
+                    claimed_retry = self.redis_client.xclaim(
+                        self.stream_name,
+                        self.consumer_group,
+                        self.consumer_name,
+                        min_idle_time=self.pending_retry_idle_ms,
+                        message_ids=retry_ids
+                    )
+                except Exception as claim_error:
+                    logger.error(f"Failed to claim retry messages: {claim_error}")
+                    claimed_retry = []
+
+                if claimed_retry:
                     messages = []
-                    for msg_id, fields in claimed:
-                        messages.append(self._parse_redis_message(msg_id, fields))
+                    for msg_id, fields in claimed_retry:
+                        msg_id_str = msg_id.decode('utf-8') if isinstance(msg_id, bytes) else str(msg_id)
+                        event = self._decode_stream_message(msg_id_str, fields)
+
+                        if event is None:
+                            # Unparseable event - send to DLQ immediately
+                            await self._handle_failed_message(msg_id_str, event, retry_count=self.max_retries)
+                            try:
+                                self.redis_client.xack(self.stream_name, self.consumer_group, msg_id_str)
+                            except Exception as ack_error:
+                                logger.error(f"Failed to ACK malformed message {msg_id_str}: {ack_error}")
+                            self.batch_manager.remove_message_ids([msg_id_str])
+                            continue
+
+                        messages.append({'id': msg_id_str, 'event': event})
 
                     if messages:
                         processed_ids = await self._process_batch(messages)
-                        # ACK is already done in _process_batch, but verify it succeeded
                         if processed_ids:
+                            self.batch_manager.remove_message_ids(processed_ids)
                             logger.debug(f"Processed {len(processed_ids)} pending messages")
 
         except Exception as e:
@@ -476,6 +526,47 @@ class FastPathConsumer:
 
         logger.info("Fast path consumer stopped")
 
+    async def _read_messages_with_count(self, count: int) -> List[Dict[str, Any]]:
+        """
+        Read messages with specified count (for backpressure handling).
+        
+        Args:
+            count: Maximum number of messages to read
+            
+        Returns:
+            List of message dictionaries
+        """
+        try:
+            messages = self.redis_client.xreadgroup(
+                self.consumer_group,
+                self.consumer_name,
+                {self.stream_name: ">"},
+                count=count,
+                block=self.block_ms
+            )
+
+            if not messages:
+                return []
+
+            # Parse messages (same logic as _read_messages)
+            result = []
+            for stream_name, stream_messages in messages:
+                for message_id, fields in stream_messages:
+                    msg_id = message_id.decode('utf-8') if isinstance(message_id, bytes) else str(message_id)
+                    event = self._decode_stream_message(msg_id, fields)
+                    result.append({
+                        'id': msg_id,
+                        'event': event
+                    })
+
+            return result
+
+        except redis.ConnectionError as e:
+            logger.error(f"Redis connection error: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error reading messages: {e}")
+            return []
 
     def stop(self) -> None:
         """Stop the consumer."""
