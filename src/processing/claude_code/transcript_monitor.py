@@ -197,18 +197,19 @@ class ClaudeCodeTranscriptMonitor:
         # Process the transcript
         logger.info("Processing transcript for session %s from %s hook: %s",
                    session_id, hook_type, transcript_path)
-        await self._process_transcript(session_id, transcript_path)
+        await self._process_transcript(session_id, transcript_path, hook_type)
 
         # Mark as processed
         self.processed_transcripts.add(dedup_key)
 
-    async def _process_transcript(self, session_id: str, transcript_path: str) -> None:
+    async def _process_transcript(self, session_id: str, transcript_path: str, hook_type: str = None) -> None:
         """
         Process a Claude Code transcript file.
 
         Args:
             session_id: Session ID
             transcript_path: Path to transcript JSONL file
+            hook_type: Hook type that triggered processing (for logging)
         """
         try:
             path = Path(transcript_path)
@@ -220,19 +221,27 @@ class ClaudeCodeTranscriptMonitor:
             with open(path, 'r') as f:
                 lines = f.readlines()
 
-            logger.info("Processing %d transcript entries for session %s", len(lines), session_id)
-
-            # Process each line
-            for line_num, line in enumerate(lines, start=1):
+            # Parse all entries first (needed for workspace hash extraction)
+            entries = []
+            for line in lines:
                 if not line.strip():
                     continue
-
                 try:
-                    entry = json.loads(line)
-                    await self._process_transcript_entry(session_id, entry, line_num)
-                except json.JSONDecodeError as e:
-                    logger.error("Failed to parse line %d: %s", line_num, e)
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
                     continue
+
+            logger.info("Processing %d transcript entries for session %s (from %s hook)",
+                       len(entries), session_id, hook_type or "unknown")
+
+            # Extract workspace hash from transcript
+            workspace_hash = self._get_workspace_hash_from_transcript(transcript_path, entries)
+            logger.debug("Extracted workspace hash: %s for transcript: %s",
+                        workspace_hash, transcript_path)
+
+            # Process each entry
+            for line_num, entry in enumerate(entries, start=1):
+                await self._process_transcript_entry(session_id, entry, line_num, workspace_hash)
 
         except Exception as e:
             logger.error("Error processing transcript %s: %s", transcript_path, e, exc_info=True)
@@ -241,7 +250,8 @@ class ClaudeCodeTranscriptMonitor:
         self,
         session_id: str,
         entry: Dict[str, Any],
-        line_num: int
+        line_num: int,
+        workspace_hash: str = None
     ) -> None:
         """
         Process a single transcript entry and send to Redis.
@@ -250,6 +260,7 @@ class ClaudeCodeTranscriptMonitor:
             session_id: Session ID
             entry: Transcript entry dictionary
             line_num: Line number in transcript file
+            workspace_hash: Pre-computed workspace hash
         """
         # Extract metadata from transcript entry
         # Claude Code transcript format typically includes:
@@ -273,7 +284,7 @@ class ClaudeCodeTranscriptMonitor:
             "session_id": session_id,
             "external_session_id": session_id,
             "metadata": {
-                "workspace_hash": self._get_workspace_hash_from_session(session_id),
+                "workspace_hash": workspace_hash,
                 "source": "transcript_monitor",
                 "line_number": line_num,
             },
@@ -323,18 +334,58 @@ class ClaudeCodeTranscriptMonitor:
                 e
             )
 
-    def _get_workspace_hash_from_session(self, session_id: str) -> str:
+    def _get_workspace_hash_from_transcript(self, transcript_path: str, transcript_content: list = None) -> str:
         """
-        Extract workspace hash from session ID or compute from CWD.
+        Extract workspace hash from transcript path and content.
+
+        Tries multiple strategies:
+        1. Extract from transcript file path (often contains workspace directory)
+        2. Look for workspace/cwd in transcript content (first entries often have this)
+        3. Fall back to transcript path hash
 
         Args:
-            session_id: Session ID
+            transcript_path: Path to transcript file
+            transcript_content: Optional parsed transcript content
 
         Returns:
             Workspace hash
         """
-        # For now, use a simple hash
-        # In production, this could be extracted from session metadata
-        import os
-        workspace_path = os.getcwd()
-        return hashlib.sha256(workspace_path.encode()).hexdigest()[:16]
+        # Strategy 1: Extract workspace from transcript path
+        # Claude Code typically stores transcripts in workspace-specific locations
+        # e.g., /path/to/workspace/.claude/sessions/session_id/transcript.jsonl
+        path_obj = Path(transcript_path)
+
+        # Look for .claude in parent directories - the parent of .claude is the workspace
+        for parent in path_obj.parents:
+            if parent.name == '.claude' and parent.parent:
+                workspace_path = str(parent.parent)
+                return hashlib.sha256(workspace_path.encode()).hexdigest()[:16]
+
+        # Strategy 2: Parse transcript content for workspace/cwd information
+        if transcript_content:
+            # Look in first few entries for workspace information
+            for entry in transcript_content[:5]:  # Check first 5 entries
+                if isinstance(entry, dict):
+                    # Check for cwd or workspace fields
+                    if 'cwd' in entry:
+                        workspace_path = entry['cwd']
+                        return hashlib.sha256(str(workspace_path).encode()).hexdigest()[:16]
+
+                    if 'workspace' in entry:
+                        workspace_path = entry['workspace']
+                        return hashlib.sha256(str(workspace_path).encode()).hexdigest()[:16]
+
+                    # Check metadata
+                    metadata = entry.get('metadata', {})
+                    if isinstance(metadata, dict):
+                        if 'cwd' in metadata:
+                            workspace_path = metadata['cwd']
+                            return hashlib.sha256(str(workspace_path).encode()).hexdigest()[:16]
+                        if 'workspace' in metadata:
+                            workspace_path = metadata['workspace']
+                            return hashlib.sha256(str(workspace_path).encode()).hexdigest()[:16]
+
+        # Strategy 3: Fall back to hashing the transcript directory path
+        # This at least gives us a consistent hash per workspace
+        transcript_dir = str(path_obj.parent.parent)  # Go up from file to session to workspace area
+        return hashlib.sha256(transcript_dir.encode()).hexdigest()[:16]
