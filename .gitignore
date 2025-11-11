@@ -58,6 +58,14 @@ logs/
 *.swp
 
 # Database files (local development)
+*.db
 *.db-shm
 *.db-wal
+*.db-journal
+
+# Node.js / TypeScript
+node_modules/
+package-lock.json
+out/
+*.tsbuildinfo
 
