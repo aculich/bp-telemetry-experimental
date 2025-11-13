@@ -204,7 +204,7 @@ run_command:
 
 - `response` (string): Full AI response text
 - `model` (string, optional): Model identifier
-- `tokens` (number, optional): Token count
+- `tokens` (number, optional): Token count (converted to `tokens_used` in event payload)
 - `duration_ms` (number, optional): Response generation time in milliseconds
 
 ---

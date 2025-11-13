@@ -141,7 +141,7 @@ async def reconstruct_cursor_conversation(session_id: str):
       "response_text": "Created cursor-write-trace-test.md...",
       "response_length": 73,
       "model": "claude-sonnet-3.5",
-      "tokens": 45,
+      "tokens_used": 45,
       "duration_ms": 1850
     },
     {

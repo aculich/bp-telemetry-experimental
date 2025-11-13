@@ -177,7 +177,7 @@ sequence | timestamp           | event_type           | hook_type            | s
     "response_text": "Here's a sorting function...",
     "response_length": 450,
     "model": "claude-sonnet-4-5",
-    "tokens": 1250,
+    "tokens_used": 1250,
     "duration_ms": 3400
   }
 }
