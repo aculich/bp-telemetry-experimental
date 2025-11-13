@@ -29,18 +29,14 @@ class AfterAgentResponseHook(CursorHookBase):
     def execute(self) -> int:
         """Execute hook logic."""
         # Extract response data from stdin
+        # Note: Cursor does not provide model, tokens, or duration_ms in hook input
         text = self.input_data.get('text', '')
-        model = self.input_data.get('model', '')
-        tokens = self.input_data.get('tokens', 0)
-        duration_ms = self.input_data.get('duration_ms', 0)
 
         # Build event payload
         payload = {
             'response_length': len(text),
             'response_text': text,  # Full response text (privacy-aware)
-            'model': model,
-            'tokens_used': tokens,  # Standardized field name
-            'duration_ms': duration_ms,
+            # model, tokens_used, duration_ms not included - Cursor doesn't provide these fields
         }
 
         # Build and enqueue event

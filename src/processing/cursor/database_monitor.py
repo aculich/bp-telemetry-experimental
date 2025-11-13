@@ -431,6 +431,8 @@ class CursorDatabaseMonitor:
                 timestamp_iso = time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())
 
             # Build event payload
+            # Note: Cursor ItemTable structure does not contain model, tokens, or duration fields
+            # Only includes fields that actually exist in the data structure
             payload = {
                 "trace_type": "generation",
                 "generation_id": generation_id,
@@ -441,15 +443,8 @@ class CursorDatabaseMonitor:
                 "generation_timestamp_ms": unix_ms,
                 "generation_timestamp": timestamp_iso,
 
-                # Note: These fields don't exist in the actual data structure
-                # Keeping for backward compatibility, but they'll be empty/unknown
-                "model": "unknown",  # Not in data
-                "tokens_used": 0,  # Not in data
-                "prompt_tokens": 0,  # Not in data
-                "completion_tokens": 0,  # Not in data
-                "response_text": "",  # Not in data (only textDescription exists)
-                "prompt_text": "",  # Would need to match from prompts array
-                "prompt_id": "",  # Not in data
+                # model, tokens_used, duration_ms not included - not in Cursor ItemTable structure
+                # response_text, prompt_text, prompt_id not included - not in data structure
 
                 # Full data for complete capture
                 "full_generation_data": gen,

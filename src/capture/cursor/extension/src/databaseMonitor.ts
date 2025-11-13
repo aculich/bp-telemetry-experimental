@@ -334,6 +334,9 @@ export class DatabaseMonitor {
         typeof gen.value === "string" ? JSON.parse(gen.value) : gen.value;
 
       // Create trace event (use snake_case for consistency with Python hooks)
+      // Note: This extension currently tries to query non-existent SQL table
+      // Cursor stores data in ItemTable as JSON array, not SQL table
+      // model, tokens_used, duration_ms not included - not in Cursor ItemTable structure
       const event: TelemetryEvent = {
         version: "0.1.0",
         hookType: "DatabaseTrace",
@@ -344,18 +347,10 @@ export class DatabaseMonitor {
           generation_id: gen.uuid,
           data_version: gen.data_version,
 
-          // Model and token info
-          model: value?.model || "unknown",
-          tokens_used: value?.tokensUsed || value?.completionTokens || 0,
-          prompt_tokens: value?.promptTokens || 0,
-          completion_tokens: value?.completionTokens || 0,
+          // model, tokens_used, duration_ms not included - Cursor ItemTable doesn't contain these fields
+          // response_text, prompt_text, prompt_id not included - not in data structure
 
-          // Full content (privacy-aware)
-          response_text: value?.responseText || value?.text || "",
-          prompt_text: gen.prompt_text || "", // From joined prompts table
-          prompt_id: value?.promptId || "",
-
-          // Request metadata
+          // Request metadata (if available)
           request_parameters: value?.requestParameters || {},
 
           // Timestamps

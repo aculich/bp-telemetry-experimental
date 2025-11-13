@@ -29,10 +29,10 @@ class AfterShellExecutionHook(CursorHookBase):
     def execute(self) -> int:
         """Execute hook logic."""
         # Extract shell execution data from stdin
+        # Note: Cursor does not provide duration_ms in hook input
         command = self.input_data.get('command', '')
         output = self.input_data.get('output', '')
         exit_code = self.input_data.get('exit_code', 0)
-        duration_ms = self.input_data.get('duration_ms', 0)
 
         # Build event payload
         payload = {
@@ -41,7 +41,7 @@ class AfterShellExecutionHook(CursorHookBase):
             'output_lines': output.count('\n') if output else 0,
             'output': output,  # Full command output (privacy-aware)
             'exit_code': exit_code,
-            'duration_ms': duration_ms,
+            # duration_ms not included - Cursor doesn't provide this field
         }
 
         # Build and enqueue event

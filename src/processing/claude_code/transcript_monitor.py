@@ -296,15 +296,25 @@ class ClaudeCodeTranscriptMonitor:
             }
         }
 
-        # Add model info if present
-        if 'model' in entry:
-            event['payload']['model'] = entry['model']
+        # Add model info if present (nested in message object)
+        message = entry.get('message', {})
+        if isinstance(message, dict):
+            if 'model' in message:
+                event['payload']['model'] = message['model']
 
-        # Add usage info if present
-        if 'usage' in entry:
-            usage = entry['usage']
-            if isinstance(usage, dict):
-                event['payload']['tokens_used'] = usage.get('total_tokens', 0)
+            # Add usage info if present (nested in message object)
+            if 'usage' in message:
+                usage = message['usage']
+                if isinstance(usage, dict):
+                    # Calculate total tokens from input_tokens + output_tokens
+                    input_tokens = usage.get('input_tokens', 0)
+                    output_tokens = usage.get('output_tokens', 0)
+                    total_tokens = input_tokens + output_tokens
+                    if total_tokens > 0:
+                        event['payload']['tokens_used'] = total_tokens
+                        # Also store detailed usage info
+                        event['payload']['prompt_tokens'] = input_tokens
+                        event['payload']['completion_tokens'] = output_tokens
 
         # Send to Redis stream
         try:
