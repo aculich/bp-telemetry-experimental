@@ -24,6 +24,7 @@ from .fast_path.consumer import FastPathConsumer
 from .fast_path.cdc_publisher import CDCPublisher
 from .cursor.session_monitor import SessionMonitor
 from .cursor.database_monitor import CursorDatabaseMonitor
+from .cursor.markdown_monitor import CursorMarkdownMonitor
 from .claude_code.transcript_monitor import ClaudeCodeTranscriptMonitor
 from ..capture.shared.config import Config
 
@@ -59,6 +60,7 @@ class TelemetryServer:
         self.consumer: Optional[FastPathConsumer] = None
         self.session_monitor: Optional[SessionMonitor] = None
         self.cursor_monitor: Optional[CursorDatabaseMonitor] = None
+        self.markdown_monitor: Optional[CursorMarkdownMonitor] = None
         self.claude_code_monitor: Optional[ClaudeCodeTranscriptMonitor] = None
         self.running = False
         self.monitor_threads: list[threading.Thread] = []
@@ -156,6 +158,15 @@ class TelemetryServer:
         )
 
         logger.info("Cursor database monitor initialized")
+        
+        # Create markdown monitor (writes .md files) - only if cursor monitor is enabled
+        if enabled:
+            self.markdown_monitor = CursorMarkdownMonitor(
+                session_monitor=self.session_monitor,
+                poll_interval=120.0,  # 2 minutes safety net
+                use_utc=True,
+            )
+            logger.info("Cursor markdown monitor initialized")
 
     def _initialize_claude_code_monitor(self) -> None:
         """Initialize Claude Code transcript monitor."""
@@ -216,6 +227,26 @@ class TelemetryServer:
                 session_thread.start()
                 cursor_thread.start()
                 self.monitor_threads.extend([session_thread, cursor_thread])
+                
+                # Start markdown monitor if enabled
+                if self.markdown_monitor:
+                    def run_markdown_monitor():
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(self.markdown_monitor.start())
+                        # Keep loop running for async operations
+                        try:
+                            loop.run_forever()
+                        except KeyboardInterrupt:
+                            pass
+                        finally:
+                            loop.run_until_complete(self.markdown_monitor.stop())
+                            loop.close()
+                    
+                    markdown_thread = threading.Thread(target=run_markdown_monitor, daemon=True)
+                    markdown_thread.start()
+                    self.monitor_threads.append(markdown_thread)
 
             if self.claude_code_monitor:
                 def run_claude_code_monitor():
@@ -273,6 +304,12 @@ class TelemetryServer:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self.cursor_monitor.stop())
+
+        if self.markdown_monitor:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.markdown_monitor.stop())
 
         if self.session_monitor:
             import asyncio
