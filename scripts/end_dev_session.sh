@@ -251,6 +251,25 @@ Respond with one line per file in format 'IGNORE: filename' or 'COMMIT: filename
     else
         echo "   ⚠️  Skipping commit (--no-commit flag)"
     fi
+    
+    # Check if there are still unresolved files after handling
+    REMAINING_UNCOMMITTED=$(git diff-index --quiet HEAD --; echo $?)
+    REMAINING_UNTRACKED=$(git ls-files --others --exclude-standard)
+    
+    if [[ "$REMAINING_UNCOMMITTED" -eq 1 ]] || [[ -n "$REMAINING_UNTRACKED" ]]; then
+        echo ""
+        echo "   ⚠️  Warning: You still have unresolved changes in your working directory:"
+        git status --short
+        echo ""
+        echo "   The session will end, but these changes will remain uncommitted/untracked."
+        read -p "   Continue ending session? (Y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            echo "   ❌ Session end cancelled. Resolve changes and run again."
+            exit 1
+        fi
+        echo "   ⚠️  Continuing with unresolved changes..."
+    fi
 else
     echo "   ✅ No uncommitted changes or untracked files"
 fi
