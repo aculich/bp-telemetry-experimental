@@ -4,7 +4,18 @@ This document describes best practices for keeping your fork's `main` branch syn
 
 ## Overview
 
-The `aculich/bp-telemetry-experimental` fork maintains `main` as a mirror of `blueplane-ai/bp-telemetry-core`'s `main` branch. All feature work should be done on separate branches.
+The `aculich/bp-telemetry-experimental` fork uses a branching strategy that keeps `main` as a mirror of `blueplane-ai/bp-telemetry-core`'s `main` branch, while maintaining fork-specific development on `develop`.
+
+### Branch Structure
+
+- **`main`**: Mirror of `upstream/main` - never commit directly here
+- **`develop`**: Fork's main development branch - fork-specific features, scripts, and docs
+- **`feature/*`**: Feature branches branched off `develop` for specific work
+
+This ensures:
+- `main` stays clean and always matches upstream
+- Fork-specific work is organized on `develop`
+- Feature work is isolated and can be easily rebased
 
 ## Quick Sync
 
@@ -68,37 +79,74 @@ git log --oneline --graph upstream/main origin/main -10
 
 ### ✅ DO
 
-- **Always sync before starting new work**: `./scripts/sync_upstream.sh`
-- **Work on feature branches**: Never commit directly to `main`
+- **Always sync `main` before starting new work**: `./scripts/sync_upstream.sh`
+- **Work on `develop` for fork-specific changes**: Scripts, docs, fork features
+- **Branch off `develop` for features**: `git checkout -b feature/name develop`
 - **Use `--dry-run` first**: Preview changes before applying them
 - **Keep `main` clean**: It should always match upstream exactly
-- **Backup important commits**: The script preserves commits in backup branches
+- **Merge `main` into `develop` regularly**: Keep `develop` up-to-date with upstream
 
 ### ❌ DON'T
 
-- **Don't commit directly to `main`**: Use feature branches instead
+- **Don't commit directly to `main`**: It's a mirror of upstream
+- **Don't commit upstream features to `develop`**: Use `main` → `develop` merge instead
 - **Don't force push without checking**: Always verify with `--dry-run` first
 - **Don't sync with uncommitted changes**: Commit or stash first
 - **Don't merge feature branches into `main`**: Keep `main` as upstream mirror
 
-## Workflow Example
+## Workflow Examples
+
+### Starting New Feature Work
 
 ```bash
-# 1. Start new feature work
-./scripts/sync_upstream.sh  # Sync first
+# 1. Sync main with upstream (if needed)
+git checkout main
+./scripts/sync_upstream.sh
+
+# 2. Update develop with latest upstream changes
+git checkout develop
+git merge main  # or git rebase main for cleaner history
+
+# 3. Create feature branch from develop
 git checkout -b feature/my-feature
 
-# 2. Make changes and commit
+# 4. Make changes and commit
 git add .
 git commit -m "feat: add new feature"
 
-# 3. Push feature branch
+# 5. Push feature branch
 git push origin feature/my-feature
 
-# 4. Create PR from feature branch (not main)
+# 6. Create PR from feature branch to develop (or upstream if contributing back)
+```
 
-# 5. After PR is merged upstream, sync again
+### Fork-Specific Development (Scripts, Docs, etc.)
+
+```bash
+# Work directly on develop for fork-specific changes
+git checkout develop
+
+# Make changes
+git add .
+git commit -m "docs: update fork workflow"
+
+# Push to origin
+git push origin develop
+```
+
+### Syncing After Upstream Changes
+
+```bash
+# 1. Sync main with upstream
+git checkout main
 ./scripts/sync_upstream.sh
+
+# 2. Update develop with latest upstream
+git checkout develop
+git merge main  # Brings upstream changes into develop
+
+# 3. Continue development
+git checkout -b feature/new-feature
 ```
 
 ## Safety Features
