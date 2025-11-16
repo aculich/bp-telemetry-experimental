@@ -183,10 +183,10 @@ Respond with one line per file in format 'IGNORE: filename' or 'COMMIT: filename
             echo ""
             echo "   What would you like to do with these files?"
             echo "      [i] Ignore (add to .gitignore)"
-            echo "      [l] Leave alone (don't ignore, don't commit)"
+            echo "      [l] Leave alone (don't ignore, don't commit) [default]"
             echo "      [c] Commit them anyway"
             echo "      [a] Abort session end"
-            read -p "   Choose (i/l/c/a): " -n 1 -r
+            read -p "   Choose (i/l/c/a) [default: l]: " -n 1 -r
             echo
             case $REPLY in
                 [Ii]*)
@@ -203,10 +203,6 @@ Respond with one line per file in format 'IGNORE: filename' or 'COMMIT: filename
                     git add .gitignore
                     git commit -m "chore: add files to .gitignore" >/dev/null 2>&1 || true
                     ;;
-                [Ll]*)
-                    # Leave alone - don't ignore, don't commit, just continue
-                    echo "   ℹ️  Leaving files alone. They will remain untracked."
-                    ;;
                 [Cc]*)
                     # Add junk files to commit list
                     FILES_TO_COMMIT=("${FILES_TO_COMMIT[@]}" "${FILES_TO_IGNORE[@]}")
@@ -217,18 +213,8 @@ Respond with one line per file in format 'IGNORE: filename' or 'COMMIT: filename
                     exit 1
                     ;;
                 *)
-                    # Default to ignore
-                    echo "   ℹ️  Defaulting to ignore..."
-                    for file in "${FILES_TO_IGNORE[@]}"; do
-                        if [[ -f "$file" ]]; then
-                            echo "$(basename "$file")" >> .gitignore
-                        elif [[ -d "$file" ]]; then
-                            echo "$(basename "$file")/" >> .gitignore
-                        fi
-                    done
-                    echo "   ✅ Added to .gitignore"
-                    git add .gitignore
-                    git commit -m "chore: add files to .gitignore" >/dev/null 2>&1 || true
+                    # Default to leave alone
+                    echo "   ℹ️  Leaving files alone. They will remain untracked."
                     ;;
             esac
         fi
@@ -287,23 +273,35 @@ Respond with one line per file in format 'IGNORE: filename' or 'COMMIT: filename
             fi
             
             echo ""
-            # Auto-commit by default (Y), but allow override
-            read -p "   Commit these changes? (Y/n): " -n 1 -r
+            echo "   What would you like to do with these files?"
+            echo "      [c] Commit [default]"
+            echo "      [l] Leave alone (don't commit)"
+            echo "      [a] Abort session end"
+            read -p "   Choose (c/l/a) [default: c]: " -n 1 -r
             echo
-            if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                echo "   📝 Enter commit message (or press Enter for default):"
-                echo "   Default: $COMMIT_MSG"
-                read -r USER_COMMIT_MSG
-                if [[ -z "$USER_COMMIT_MSG" ]]; then
-                    USER_COMMIT_MSG="$COMMIT_MSG"
-                fi
-                
-                git add -A
-                git commit -m "$USER_COMMIT_MSG"
-                echo "   ✅ Changes committed"
-            else
-                echo "   ⚠️  Skipping commit. Changes remain uncommitted/untracked."
-            fi
+            case $REPLY in
+                [Ll]*)
+                    # Leave alone - don't commit
+                    echo "   ⚠️  Skipping commit. Changes remain uncommitted/untracked."
+                    ;;
+                [Aa]*)
+                    echo "   ❌ Session end cancelled."
+                    exit 1
+                    ;;
+                *)
+                    # Default to commit
+                    echo "   📝 Enter commit message (or press Enter for default):"
+                    echo "   Default: $COMMIT_MSG"
+                    read -r USER_COMMIT_MSG
+                    if [[ -z "$USER_COMMIT_MSG" ]]; then
+                        USER_COMMIT_MSG="$COMMIT_MSG"
+                    fi
+                    
+                    git add -A
+                    git commit -m "$USER_COMMIT_MSG"
+                    echo "   ✅ Changes committed"
+                    ;;
+            esac
         fi
     else
         echo "   ⚠️  Skipping commit (--no-commit flag)"
