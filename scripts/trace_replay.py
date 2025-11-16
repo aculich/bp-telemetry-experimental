@@ -31,6 +31,7 @@ import json
 import sys
 import time
 import zlib
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence as SeqType
@@ -176,6 +177,10 @@ def replay_curses(events: SeqType[TraceEvent], auto_delay: float) -> None:
         selected = 0
         auto_play = auto_delay > 0
         last_advance = time.time()
+        current_delay = max(0.0, auto_delay)
+
+        wrap_long = False
+        pretty = True
 
         while True:
             h, w = stdscr.getmaxyx()
@@ -185,7 +190,10 @@ def replay_curses(events: SeqType[TraceEvent], auto_delay: float) -> None:
             platform = events[0].platform
             status = (
                 f"Trace Replay | session={session} platform={platform} "
-                f"| q:quit  j/k or ↑/↓:navigate  SPACE:auto-toggle  delay={auto_delay:.1f}s"
+                f"| q:quit  j/k or ↑/↓:navigate  ←/h:slower  →/l:faster  "
+                f"SPACE:auto  delay={current_delay:.1f}s  "
+                f"W:wrap={'on' if wrap_long else 'off'}  "
+                f"R:render={'pretty' if pretty else 'compact'}"
             )
             stdscr.addnstr(0, 0, status, w - 1, curses.A_BOLD)
 
@@ -220,9 +228,32 @@ def replay_curses(events: SeqType[TraceEvent], auto_delay: float) -> None:
                 # Pretty-print JSON, truncated to fit
                 try:
                     parsed = json.loads(ev.raw_json)
-                    detail_lines = json.dumps(parsed, indent=2).splitlines()
+                    if pretty:
+                        raw = json.dumps(parsed, indent=2)
+                    else:
+                        raw = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
                 except Exception:
-                    detail_lines = [ev.raw_json]
+                    raw = ev.raw_json
+
+                lines = raw.splitlines()
+
+                if wrap_long:
+                    wrapped: list[str] = []
+                    for line in lines:
+                        if len(line) <= w - 1:
+                            wrapped.append(line)
+                        else:
+                            wrapped.extend(
+                                textwrap.wrap(
+                                    line,
+                                    width=max(10, w - 1),
+                                    break_long_words=False,
+                                    replace_whitespace=False,
+                                )
+                            )
+                    detail_lines = wrapped
+                else:
+                    detail_lines = lines
 
                 max_detail_lines = h - detail_top - 2
                 for i, line in enumerate(detail_lines[:max_detail_lines]):
@@ -232,7 +263,7 @@ def replay_curses(events: SeqType[TraceEvent], auto_delay: float) -> None:
 
             # Auto-play advance
             now = time.time()
-            if auto_play and now - last_advance >= auto_delay:
+            if auto_play and current_delay > 0 and now - last_advance >= current_delay:
                 if selected < len(events) - 1:
                     selected += 1
                     last_advance = now
@@ -259,6 +290,16 @@ def replay_curses(events: SeqType[TraceEvent], auto_delay: float) -> None:
             elif ch == ord(" "):
                 auto_play = not auto_play
                 last_advance = time.time()
+            elif ch in (curses.KEY_LEFT, ord("h")):
+                # Slow down auto-play (increase delay)
+                current_delay = min(5.0, current_delay + 0.2)
+            elif ch in (curses.KEY_RIGHT, ord("l")):
+                # Speed up auto-play (decrease delay, but not below 0.1s)
+                current_delay = max(0.1, current_delay - 0.2)
+            elif ch in (ord("w"), ord("W")):
+                wrap_long = not wrap_long
+            elif ch in (ord("r"), ord("R")):
+                pretty = not pretty
 
     curses.wrapper(_main)
 
