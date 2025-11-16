@@ -69,8 +69,20 @@ package-lock.json
 out/
 *.tsbuildinfo
 
+# VS Code / Cursor extension packages
+*.vsix
+
+# Coverage / type-check caches
+.coverage.*
+.mypy_cache/
+.ruff_cache/
+
+# Local editor/project metadata
+.cursorindexingignore
+.specstory/
+
 #Scratch files
 docs/example_cursor_capture/
 
 # History files (generated markdown from Cursor database)
-.history/
+**/.history/

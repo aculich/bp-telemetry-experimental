@@ -266,7 +266,7 @@ simple developer tooling:
   python scripts/trace_replay.py \
     --platform cursor \
     --limit 60 \
-    --gif ./trace_replay_demo.gif
+    --gif ./docs/assets/trace_replay/trace_replay_demo.gif
   ```
 
   **Interactive keys (lower-case):**

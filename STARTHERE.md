@@ -824,7 +824,7 @@ python scripts/trace_replay.py --platform cursor --limit 200
 python scripts/trace_replay.py \
   --platform cursor \
   --limit 60 \
-  --gif ./trace_replay_demo.gif
+  --gif ./docs/assets/trace_replay/trace_replay_demo.gif
 ```
 
 ### Key File Paths
