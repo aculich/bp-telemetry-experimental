@@ -4,9 +4,16 @@
 # License-Filename: LICENSE
 
 """
-Test script to generate sample events and verify end-to-end processing.
+End-to-end smoke test for the Python processing server ingest path.
 
-Generates test events to Redis Streams and verifies they're written to SQLite.
+This script:
+- Writes a small batch of synthetic events to the Redis `telemetry:events` stream
+  using the same `MessageQueueWriter` used by Layer 1 hooks.
+- Waits briefly for the Python processing server to consume and ingest events.
+- Verifies that:
+  - Events were written to SQLite `raw_traces` for the test session.
+  - At least one row can be decompressed and parsed from `event_data`.
+  - CDC events are present on the configured CDC stream (if the server is running).
 """
 
 import sys
@@ -49,7 +56,7 @@ def generate_test_event(event_type: str, session_id: str = None) -> dict:
 def main():
     """Generate test events and verify processing."""
     print("=" * 60)
-    print("Blueplane Telemetry Core - End-to-End Test")
+    print("Blueplane Telemetry Core - Python Server Ingest Smoke Test")
     print("=" * 60)
     print()
     
@@ -101,7 +108,7 @@ def main():
     time.sleep(5)
     
     # Check SQLite database
-    print("\n5. Checking SQLite database...")
+    print("\n5. Checking SQLite database (raw_traces ingest)...")
     db_path = Path.home() / ".blueplane" / "telemetry.db"
     
     if not db_path.exists():
@@ -113,21 +120,43 @@ def main():
     with client.get_connection() as conn:
         cursor = conn.execute(
             "SELECT COUNT(*) FROM raw_traces WHERE session_id = ?",
-            (session_id,)
+            (session_id,),
         )
         count = cursor.fetchone()[0]
         
         if count > 0:
             print(f"✅ Found {count} events in database for session {session_id}")
-            
+
             # Show sample events
             cursor = conn.execute(
-                "SELECT sequence, event_type, platform, timestamp FROM raw_traces WHERE session_id = ? ORDER BY sequence LIMIT 5",
-                (session_id,)
+                "SELECT sequence, event_type, platform, timestamp FROM raw_traces "
+                "WHERE session_id = ? ORDER BY sequence LIMIT 5",
+                (session_id,),
             )
-            print("\n   Sample events:")
-            for row in cursor.fetchall():
+            print("\n   Sample events (from raw_traces):")
+            rows = cursor.fetchall()
+            for row in rows:
                 print(f"     Sequence {row[0]}: {row[1]} ({row[2]}) at {row[3]}")
+
+            # Try to decompress one event_data row to validate compression/round-trip
+            cursor = conn.execute(
+                "SELECT sequence, event_data FROM raw_traces "
+                "WHERE session_id = ? ORDER BY sequence LIMIT 1",
+                (session_id,),
+            )
+            sample = cursor.fetchone()
+            if sample:
+                seq, blob = sample
+                try:
+                    import zlib
+
+                    json_str = zlib.decompress(blob).decode("utf-8")
+                    event = json.loads(json_str)
+                    print("\n   ✅ Successfully decompressed event_data for sequence", seq)
+                    print(f"      event_type={event.get('event_type')}, platform={event.get('platform')}")
+                except Exception as exc:
+                    print("\n   ⚠️  Failed to decompress event_data for sequence", seq)
+                    print(f"      Error: {exc}")
         else:
             print(f"⚠️  No events found in database for session {session_id}")
             print("   This might mean:")

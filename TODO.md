@@ -50,7 +50,7 @@
   - ✅ Performance optimizations: batch processing, compression, backpressure handling.
 - **Gaps / assumptions to validate**
   - ☐ End-to-end ingestion has not yet been fully smoke-tested against a live Cursor session in this branch.
-  - ☐ We don't yet have a small, focused test harness that proves "push N events into Redis → see N rows in `raw_traces` with expected fields".
+  - ☐ We don't yet have a small, focused test harness that proves "push N events into Redis → see N rows in `raw_traces` with expected fields" **for this session specifically** (note: `scripts/test_end_to_end.py` provides a general ingest smoke test and now validates `event_data` decompression).
   - ☐ Operational docs for the server (how to run, how to verify, how to debug) are still thin compared to Layer 1.
 
 ### Immediate Next Steps (Implementation)
@@ -61,11 +61,11 @@
   - [ ] Confirm `SQLiteBatchWriter` is using the expected schema/columns and compression for `raw_traces` (fields line up with `layer2_db_architecture.md` and Architecture docs).
 
 - **2. Minimal automated ingest test**
-  - [ ] Add a small Python test or script (could extend `scripts/test_end_to_end.py` or add a dedicated ingest smoke test) that:
+  - [ ] Ensure there is a small Python test or script (either by extending `scripts/test_end_to_end.py` or adding a dedicated ingest smoke test) that:
     - Starts Redis + initializes streams (`scripts/init_redis.py`).
     - Writes a handful of synthetic events to `telemetry:events` using the same shape as Layer 1.
     - Runs the fast-path consumer (or full `TelemetryServer`) for a short window.
-    - Asserts that `raw_traces` contains matching rows (correct `event_type`, `platform`, `session_id`, non-empty `event_data`).
+    - Asserts that `raw_traces` contains matching rows (correct `event_type`, `platform`, `session_id`, non-empty `event_data`) and that at least one `event_data` value round-trips via zlib decompression and JSON parsing.
 
 - **3. Live Cursor path validation**
   - [ ] Run the full stack for Cursor:
