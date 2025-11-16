@@ -400,8 +400,88 @@ echo "   Branch: $CURRENT_BRANCH"
 echo "   Status: $(git status -sb | head -1 | cut -d' ' -f2-)"
 echo ""
 
-# Step 5: Optional - switch back to develop
-echo "📋 Step 4: Cleanup"
+# Step 5: Optional - merge into base branch (develop)
+echo "📋 Step 4: Merge into base branch"
+
+# Determine base branch (what we branched from)
+# Default to develop, but try to detect actual base
+BASE_BRANCH="develop"
+if git show-ref --verify --quiet refs/heads/develop; then
+    BASE_BRANCH="develop"
+elif git show-ref --verify --quiet refs/remotes/origin/develop; then
+    BASE_BRANCH="develop"
+fi
+
+# Check if current branch has commits to merge
+COMMITS_TO_MERGE=$(git rev-list --count "$BASE_BRANCH".."$CURRENT_BRANCH" 2>/dev/null || echo "0")
+
+if [[ "$COMMITS_TO_MERGE" -gt 0 ]]; then
+    echo "   Branch has $COMMITS_TO_MERGE commit(s) to merge into $BASE_BRANCH"
+    echo ""
+    read -p "   Merge $CURRENT_BRANCH into $BASE_BRANCH? (Y/n): " -n 1 -r
+    echo
+    
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        # Generate merge commit message using llm if available
+        MERGE_MSG=""
+        if command -v llm >/dev/null 2>&1; then
+            echo "   🤖 Generating merge commit message with AI..."
+            
+            # Get commit messages from this branch
+            COMMIT_MESSAGES=$(git log --format="%s" "$BASE_BRANCH".."$CURRENT_BRANCH" | head -20)
+            COMMIT_COUNT=$(git rev-list --count "$BASE_BRANCH".."$CURRENT_BRANCH")
+            
+            # Get file changes summary
+            FILES_CHANGED=$(git diff --name-status "$BASE_BRANCH".."$CURRENT_BRANCH" | head -30)
+            
+            PROMPT="Generate a concise merge commit message for merging a development session branch into develop.
+
+Branch: $CURRENT_BRANCH
+Commits to merge: $COMMIT_COUNT
+
+Commit messages:
+$COMMIT_MESSAGES
+
+Files changed:
+$FILES_CHANGED
+
+Generate a single-line merge commit message in conventional commit format (e.g., 'Merge dev/session-xxx: add feature X and fix Y'). Be concise but descriptive."
+            
+            MERGE_MSG=$(echo "$PROMPT" | llm --model gpt-4o-mini 2>/dev/null | head -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || echo "")
+        fi
+        
+        # Fallback to default merge message if llm failed
+        if [[ -z "$MERGE_MSG" ]]; then
+            MERGE_MSG="Merge $CURRENT_BRANCH into $BASE_BRANCH"
+        fi
+        
+        echo "   Merging into $BASE_BRANCH..."
+        echo "   Merge message: $MERGE_MSG"
+        
+        # Switch to base branch first
+        git checkout "$BASE_BRANCH" >/dev/null 2>&1 || {
+            echo "   ⚠️  Could not checkout $BASE_BRANCH. Skipping merge."
+            git checkout "$CURRENT_BRANCH" >/dev/null 2>&1
+        }
+        
+        # Merge the session branch
+        if git merge --no-ff "$CURRENT_BRANCH" -m "$MERGE_MSG" 2>&1; then
+            echo "   ✅ Merged $CURRENT_BRANCH into $BASE_BRANCH"
+        else
+            echo "   ❌ Merge failed. Resolve conflicts and complete merge manually."
+            echo "   Current branch: $(git rev-parse --abbrev-ref HEAD)"
+            exit 1
+        fi
+    else
+        echo "   ⚠️  Skipping merge. Branch remains separate."
+    fi
+else
+    echo "   ℹ️  No commits to merge (branch is at same commit as $BASE_BRANCH)"
+fi
+
+# Step 6: Optional - switch back to develop
+echo ""
+echo "📋 Step 5: Cleanup"
 
 # Auto-switch to develop if:
 # 1. We're on a feature branch (not develop/main)
