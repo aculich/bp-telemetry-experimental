@@ -82,6 +82,13 @@ fi
 # Step 2: Update develop with latest from main
 echo ""
 echo "📋 Step 2: Updating develop branch..."
+
+# Clean up temporary sync script if it was created (untracked file)
+if [[ -f "$SYNC_SCRIPT_PATH" ]] && ! git ls-files --error-unmatch "$SYNC_SCRIPT_PATH" >/dev/null 2>&1; then
+    echo "   Cleaning up temporary sync script..."
+    rm -f "$SYNC_SCRIPT_PATH"
+fi
+
 # Check if develop exists locally first
 if git show-ref --verify --quiet refs/heads/develop; then
     # Branch exists locally, just checkout
