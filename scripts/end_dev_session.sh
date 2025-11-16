@@ -96,18 +96,81 @@ if [[ "$HAS_UNCOMMITTED" -eq 1 ]] || [[ "$HAS_UNTRACKED" == "true" ]]; then
         FILES_TO_COMMIT=()
         
         if [[ "$HAS_UNTRACKED" == "true" ]]; then
-            while IFS= read -r file; do
-                # Check if file looks like it should be ignored
-                # Common patterns: temp files, logs, OS files, etc.
-                FILENAME=$(basename "$file")
-                if [[ "$FILENAME" =~ ^(\.DS_Store|\._.*|.*\.log|.*\.tmp|.*\.swp|.*~|.*\.bak)$ ]] || \
-                   [[ "$FILENAME" =~ ^(somestuff|test|temp|scratch|junk|.*\.test)$ ]] || \
-                   [[ -d "$file" && "$FILENAME" =~ ^(node_modules|__pycache__|\.pytest_cache|\.venv|venv|env)$ ]]; then
-                    FILES_TO_IGNORE+=("$file")
+            # Use llm CLI if available for intelligent file classification
+            if command -v llm >/dev/null 2>&1; then
+                echo "   🤖 Analyzing files with AI..."
+                
+                # Build file list with basic info
+                FILE_INFO=""
+                while IFS= read -r file; do
+                    if [[ -f "$file" ]]; then
+                        SIZE=$(wc -c < "$file" 2>/dev/null || echo "0")
+                        FIRST_LINE=$(head -n 3 "$file" 2>/dev/null | head -c 200 || echo "")
+                        FILE_INFO+="File: $file (size: ${SIZE} bytes)\nPreview: ${FIRST_LINE}\n---\n"
+                    elif [[ -d "$file" ]]; then
+                        FILE_INFO+="Directory: $file\n---\n"
+                    fi
+                done <<< "$UNTRACKED_FILES"
+                
+                # Ask llm to classify files
+                PROMPT="You are analyzing untracked git files. For each file, determine if it should be:
+1. IGNORED (temporary files, junk, test files, OS files, etc.) - respond with 'IGNORE: filename'
+2. COMMITTED (source code, documentation, config files, etc.) - respond with 'COMMIT: filename'
+
+Files to analyze:
+${FILE_INFO}
+
+Respond with one line per file in format 'IGNORE: filename' or 'COMMIT: filename'. Only list the files provided."
+                
+                LLM_RESPONSE=$(echo "$PROMPT" | llm --model gpt-4o-mini 2>/dev/null || echo "")
+                
+                # Parse llm response
+                if [[ -n "$LLM_RESPONSE" ]]; then
+                    while IFS= read -r file; do
+                        # Check llm classification for this file
+                        FILE_BASENAME=$(basename "$file")
+                        if echo "$LLM_RESPONSE" | grep -qi "IGNORE.*${FILE_BASENAME}"; then
+                            FILES_TO_IGNORE+=("$file")
+                        elif echo "$LLM_RESPONSE" | grep -qi "COMMIT.*${FILE_BASENAME}"; then
+                            FILES_TO_COMMIT+=("$file")
+                        else
+                            # Fallback: if llm didn't mention it, use simple heuristics
+                            FILENAME=$(basename "$file")
+                            if [[ "$FILENAME" =~ ^(\.DS_Store|\._.*|.*\.log|.*\.tmp|.*\.swp|.*~|.*\.bak|.*\.poo)$ ]] || \
+                               [[ "$FILENAME" =~ ^(somestuff|junk|temp|scratch)$ ]]; then
+                                FILES_TO_IGNORE+=("$file")
+                            else
+                                FILES_TO_COMMIT+=("$file")
+                            fi
+                        fi
+                    done <<< "$UNTRACKED_FILES"
                 else
-                    FILES_TO_COMMIT+=("$file")
+                    # llm failed, fall back to simple heuristics
+                    echo "   ⚠️  llm command failed, using simple heuristics..."
+                    while IFS= read -r file; do
+                        FILENAME=$(basename "$file")
+                        if [[ "$FILENAME" =~ ^(\.DS_Store|\._.*|.*\.log|.*\.tmp|.*\.swp|.*~|.*\.bak|.*\.poo)$ ]] || \
+                           [[ "$FILENAME" =~ ^(somestuff|junk|temp|scratch)$ ]] || \
+                           [[ -d "$file" && "$FILENAME" =~ ^(node_modules|__pycache__|\.pytest_cache|\.venv|venv|env)$ ]]; then
+                            FILES_TO_IGNORE+=("$file")
+                        else
+                            FILES_TO_COMMIT+=("$file")
+                        fi
+                    done <<< "$UNTRACKED_FILES"
                 fi
-            done <<< "$UNTRACKED_FILES"
+            else
+                # No llm command, use simple heuristics
+                while IFS= read -r file; do
+                    FILENAME=$(basename "$file")
+                    if [[ "$FILENAME" =~ ^(\.DS_Store|\._.*|.*\.log|.*\.tmp|.*\.swp|.*~|.*\.bak|.*\.poo)$ ]] || \
+                       [[ "$FILENAME" =~ ^(somestuff|junk|temp|scratch)$ ]] || \
+                       [[ -d "$file" && "$FILENAME" =~ ^(node_modules|__pycache__|\.pytest_cache|\.venv|venv|env)$ ]]; then
+                        FILES_TO_IGNORE+=("$file")
+                    else
+                        FILES_TO_COMMIT+=("$file")
+                    fi
+                done <<< "$UNTRACKED_FILES"
+            fi
         fi
         
         # Handle files that should be ignored
