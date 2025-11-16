@@ -17,6 +17,18 @@ cd "$REPO_ROOT"
 
 FEATURE_NAME="${1:-}"
 
+# Check if sync_upstream.sh exists (scripts should be on develop branch)
+if [[ ! -f "$REPO_ROOT/scripts/sync_upstream.sh" ]]; then
+    echo "❌ Error: Workflow scripts not found."
+    echo ""
+    echo "These scripts are fork-specific and exist on the 'develop' branch."
+    echo "Please checkout develop first:"
+    echo "   git checkout develop"
+    echo ""
+    echo "Then run this script again."
+    exit 1
+fi
+
 echo "🚀 Starting Development Session"
 echo "================================"
 echo ""
