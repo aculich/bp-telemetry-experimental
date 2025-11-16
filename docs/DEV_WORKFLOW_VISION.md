@@ -400,3 +400,79 @@ This section tracks how the workflow and scripts have evolved over time. It’s 
   - Use `start_dev_session.sh` with or without a feature name.
   - Let `end_dev_session.sh` decide where the session merges based on the stored/inferred base branch.
 
+
+---
+
+## 8. Worktrees, Cursor, and Multi‑Workspace Setups
+
+This section describes how our workflow interacts with git worktrees and multi‑window / multi‑workspace usage in tools like Cursor.
+
+### 8.1 Git Worktrees Basics
+
+- Git worktrees allow multiple checked‑out branches of the same repository to exist in different directories at the same time.
+- All worktrees share the same `.git` object database but have separate working trees and indexes.
+- **Important constraint**: a given branch can only be checked out in one worktree at a time.  
+  If `main` or `develop` is already checked out in one worktree, `git checkout main` in another worktree will fail.
+
+### 8.2 Interaction with Our Scripts
+
+- `start_dev_session.sh`:
+  - Always runs from the current working directory (`$REPO_ROOT`).
+  - Assumes it can:
+    - `git checkout main` → sync from upstream.
+    - `git checkout develop` → merge from `main`.
+  - If `main` or `develop` is already checked out in **another worktree** from the same `.git`, these checkouts can fail.
+
+- `end_dev_session.sh` and `resume_dev_session.sh`:
+  - Operate entirely within the current worktree.
+  - They don’t directly manage or interact with other worktrees.
+
+### 8.3 Recommended Usage with Cursor and Worktrees
+
+For now, the simplest, least surprising pattern is:
+
+- **Use one primary “session workspace” per clone**:
+  - Treat the current clone + directory (where you run the scripts) as the canonical session workspace.
+  - Let `start_dev_session.sh` control switching between `main`, `develop`, feature branches, and `dev/session-*` within that workspace.
+
+- **Avoid checking out `main` or `develop` in other worktrees from the same clone**:
+  - Doing so can cause `start_dev_session.sh` to fail when it tries to switch back to `main`/`develop`.
+
+- **If you want parallel views of different branches in Cursor**:
+  - Prefer using **multiple clones** of the repository rather than multiple worktrees from a single `.git`.
+  - Each clone:
+    - Has its own `main`/`develop`/feature branches.
+    - Can run the session scripts independently without colliding over which branch is checked out where.
+
+In practice, this looks like:
+
+```bash
+# Clone 1: primary session workspace
+~/projects/bp-telemetry-experimental/
+  ./scripts/start_dev_session.sh my-feature
+  ./scripts/end_dev_session.sh
+
+# Clone 2: possibly read‑only or for reviewing another branch
+~/projects/bp-telemetry-experimental-review/
+  git checkout develop
+  # Use Cursor here to read/compare without running the session scripts
+```
+
+This approach plays well with Cursor’s multi‑window usage:
+
+- Each Cursor window points to a different clone (or the same clone at different times).
+- Our scripts run in a predictable environment without cross‑worktree branch checkout conflicts.
+
+### 8.4 Future Worktree‑Aware Enhancements (Not Implemented Yet)
+
+Long‑term, we may want tighter integration with git worktrees, especially for power users:
+
+- A “session worktree manager” script that:
+  - Creates a dedicated worktree per session branch under a known directory (e.g., `.worktrees/dev/session-*`).
+  - Optionally prints instructions or triggers an editor open (e.g., Cursor) in that worktree.
+
+- Worktree‑aware merge logic:
+  - Detect that the base branch for a session lives in another worktree and run merges in that worktree’s directory.
+
+These are deliberately not implemented yet; for now we prefer to keep the behavior simple and robust with a single “session workspace” per clone. This section is here to capture how worktrees fit into the *vision* so we can revisit as Cursor 2.x and our own habits evolve.
+
