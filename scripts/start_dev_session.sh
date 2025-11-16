@@ -15,7 +15,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$REPO_ROOT"
 
-FEATURE_NAME="${1:-}"
+FEATURE_BRANCH="${1:-}"
+SESSION_NAME="${2:-}"
 
 # Check if sync_upstream.sh exists (scripts should be on develop branch)
 # Store the path before we potentially switch branches
@@ -136,49 +137,85 @@ else
     echo "   ✅ Merged latest changes from main into develop"
 fi
 
-# Step 3: Create or checkout development branch
+# Step 3: Setup feature branch (if provided) or use develop
 echo ""
-echo "📋 Step 3: Setting up development branch..."
+echo "📋 Step 3: Setting up feature branch..."
 
-if [[ -z "$FEATURE_NAME" ]]; then
-    # Generate session name from timestamp
-    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    FEATURE_NAME="dev/session-${TIMESTAMP}"
-    echo "   No session name provided, using: $FEATURE_NAME"
-else
-    # Allow both dev/ and feature/ prefixes, default to dev/ if no prefix
-    if [[ "$FEATURE_NAME" =~ ^(dev/|feature/) ]]; then
-        FEATURE_NAME="${FEATURE_NAME}"
+BASE_BRANCH="develop"
+FEATURE_BRANCH_NAME=""
+
+if [[ -n "$FEATURE_BRANCH" ]]; then
+    # Normalize feature branch name (ensure feature/ prefix)
+    if [[ "$FEATURE_BRANCH" =~ ^feature/ ]]; then
+        FEATURE_BRANCH_NAME="$FEATURE_BRANCH"
     else
-        FEATURE_NAME="dev/${FEATURE_NAME}"
+        FEATURE_BRANCH_NAME="feature/${FEATURE_BRANCH}"
     fi
-    echo "   Using branch: $FEATURE_NAME"
+    
+    echo "   Feature branch: $FEATURE_BRANCH_NAME"
+    
+    # Check if feature branch exists
+    if git rev-parse --verify "$FEATURE_BRANCH_NAME" >/dev/null 2>&1; then
+        echo "   ✅ Feature branch exists, checking out..."
+        git checkout "$FEATURE_BRANCH_NAME"
+        BASE_BRANCH="$FEATURE_BRANCH_NAME"
+    elif git rev-parse --verify "origin/$FEATURE_BRANCH_NAME" >/dev/null 2>&1; then
+        echo "   ✅ Feature branch exists on remote, creating local tracking branch..."
+        git checkout -b "$FEATURE_BRANCH_NAME" "origin/$FEATURE_BRANCH_NAME"
+        BASE_BRANCH="$FEATURE_BRANCH_NAME"
+    else
+        echo "   Creating new feature branch from develop..."
+        git checkout -b "$FEATURE_BRANCH_NAME"
+        BASE_BRANCH="$FEATURE_BRANCH_NAME"
+        echo "   ✅ Created feature branch: $FEATURE_BRANCH_NAME"
+    fi
+else
+    echo "   No feature branch specified, using develop as base"
 fi
 
-# Check if branch already exists
-if git rev-parse --verify "$FEATURE_NAME" >/dev/null 2>&1; then
+# Step 4: Create or checkout development session branch
+echo ""
+echo "📋 Step 4: Setting up development session branch..."
+
+if [[ -z "$SESSION_NAME" ]]; then
+    # Generate session name from timestamp
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    SESSION_NAME="dev/session-${TIMESTAMP}"
+    echo "   No session name provided, using: $SESSION_NAME"
+else
+    # Ensure dev/ prefix for session branches
+    if [[ "$SESSION_NAME" =~ ^dev/ ]]; then
+        SESSION_NAME="${SESSION_NAME}"
+    else
+        SESSION_NAME="dev/${SESSION_NAME}"
+    fi
+    echo "   Using session branch: $SESSION_NAME"
+fi
+
+# Check if session branch already exists
+if git rev-parse --verify "$SESSION_NAME" >/dev/null 2>&1; then
     # Check if we're already on this branch
-    if [[ "$(git rev-parse --abbrev-ref HEAD)" == "$FEATURE_NAME" ]]; then
-        echo "   ℹ️  Already on branch '$FEATURE_NAME'. Continuing..."
+    if [[ "$(git rev-parse --abbrev-ref HEAD)" == "$SESSION_NAME" ]]; then
+        echo "   ℹ️  Already on branch '$SESSION_NAME'. Continuing..."
     else
         # Check if branch has uncommitted changes or unpushed commits
-        git checkout "$FEATURE_NAME" >/dev/null 2>&1
+        git checkout "$SESSION_NAME" >/dev/null 2>&1
         HAS_UNCOMMITTED=$(git diff-index --quiet HEAD --; echo $?)
-        LOCAL_COMMITS=$(git rev-list --count origin/"$FEATURE_NAME"..HEAD 2>/dev/null || echo "0")
-        git checkout develop >/dev/null 2>&1
+        LOCAL_COMMITS=$(git rev-list --count origin/"$SESSION_NAME"..HEAD 2>/dev/null || echo "0")
+        git checkout "$BASE_BRANCH" >/dev/null 2>&1
         
         if [[ "$HAS_UNCOMMITTED" -eq 1 ]] || [[ "$LOCAL_COMMITS" -gt 0 ]]; then
             # Branch has work - auto-checkout (probably continuing previous session)
-            echo "   ℹ️  Branch '$FEATURE_NAME' exists with work. Checking out..."
-            git checkout "$FEATURE_NAME"
+            echo "   ℹ️  Branch '$SESSION_NAME' exists with work. Checking out..."
+            git checkout "$SESSION_NAME"
             echo "   ✅ Checked out existing branch"
         else
             # Branch exists but no work - ask
-            echo "   ⚠️  Branch '$FEATURE_NAME' already exists (no uncommitted changes)."
+            echo "   ⚠️  Branch '$SESSION_NAME' already exists (no uncommitted changes)."
             read -p "   Checkout existing branch? (Y/n): " -n 1 -r
             echo
             if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-                git checkout "$FEATURE_NAME"
+                git checkout "$SESSION_NAME"
                 echo "   ✅ Checked out existing branch"
             else
                 echo "   ❌ Aborted. Please provide a different branch name."
@@ -187,14 +224,23 @@ if git rev-parse --verify "$FEATURE_NAME" >/dev/null 2>&1; then
         fi
     fi
 else
-    # Create new branch from develop
-    git checkout -b "$FEATURE_NAME"
-    echo "   ✅ Created and checked out branch: $FEATURE_NAME"
+    # Create new session branch from base branch (feature or develop)
+    git checkout -b "$SESSION_NAME"
+    echo "   ✅ Created and checked out session branch: $SESSION_NAME"
+    
+    # Store the base branch in git config for this session branch
+    if [[ -n "$FEATURE_BRANCH_NAME" ]]; then
+        git config branch."$SESSION_NAME".baseBranch "$FEATURE_BRANCH_NAME"
+        echo "   📌 Session will merge back into: $FEATURE_BRANCH_NAME"
+    else
+        git config branch."$SESSION_NAME".baseBranch "develop"
+        echo "   📌 Session will merge back into: develop"
+    fi
 fi
 
-# Step 4: Show status
+# Step 5: Show status
 echo ""
-echo "📋 Step 4: Current Status"
+echo "📋 Step 5: Current Status"
 echo "================================"
 echo "   Current branch: $(git rev-parse --abbrev-ref HEAD)"
 echo "   Upstream status:"
@@ -205,12 +251,21 @@ echo ""
 echo "Next steps:"
 echo "   1. Make your changes"
 echo "   2. Commit: git add . && git commit -m 'feat: your changes'"
-echo "   3. Push: git push origin $FEATURE_NAME"
+echo "   3. Push: git push origin $SESSION_NAME"
 echo "   4. When done, run: ./scripts/end_dev_session.sh"
 echo ""
+if [[ -n "$FEATURE_BRANCH_NAME" ]]; then
+    echo "Feature branch: $FEATURE_BRANCH_NAME"
+    echo "Session branch: $SESSION_NAME"
+    echo ""
+fi
 echo "Branch naming convention:"
 echo "   - dev/session-{timestamp} - Development sessions (auto-generated)"
-echo "   - dev/{name} - Other development work"
-echo "   - feature/{name} - Feature branches (use explicit 'feature/' prefix)"
+echo "   - feature/{name} - Feature branches (session branches merge back to these)"
+echo ""
+echo "Usage examples:"
+echo "   ./scripts/start_dev_session.sh                    # Session from develop"
+echo "   ./scripts/start_dev_session.sh my-feature        # Session from feature/my-feature"
+echo "   ./scripts/start_dev_session.sh my-feature session-name  # Named session from feature"
 echo ""
 
