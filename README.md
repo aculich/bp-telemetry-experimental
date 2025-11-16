@@ -238,6 +238,34 @@ This server, together with the Python hooks and Cursor extension described in
 `STARTHERE.md`, forms the Layer 2 portion of the three-layer Cursor instrumentation
 strategy (hooks → Redis → Python server → SQLite/CDC).
 
+##### Inspecting DLQ and Retry State
+
+The fast-path consumer uses Redis Streams Pending Entries List (PEL) for retries and a
+Dead Letter Queue (DLQ) stream for messages that exceed `max_retries`.
+
+- **DLQ stream**: `telemetry:dlq`
+- **Main queue**: `telemetry:events` (consumer group `processors`)
+
+You can inspect the DLQ and pending state with:
+
+```bash
+# How many messages are in the DLQ?
+redis-cli XLEN telemetry:dlq
+
+# Inspect recent DLQ entries
+redis-cli XREVRANGE telemetry:dlq + - COUNT 10
+
+# Check pending messages for the main consumer group
+redis-cli XPENDING telemetry:events processors
+
+# Inspect a sample of pending entries
+redis-cli XPENDING telemetry:events processors - + 10
+```
+
+Under normal operation you should see:
+- DLQ length at or near 0.
+- Pending entries being drained as the consumer processes events.
+
 ### Layer 3: Interfaces
 
 Multiple ways to access your telemetry data:
