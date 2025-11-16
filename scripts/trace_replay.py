@@ -57,7 +57,17 @@ def load_events(
     platform: Optional[str] = None,
     limit: Optional[int] = None,
 ) -> List[TraceEvent]:
-    """Load events from raw_traces with optional filters."""
+    """
+    Load events from raw_traces with optional filters.
+
+    Behavior when session_id is not provided:
+    - Filters by platform (if given).
+    - Loads all matching rows ordered by sequence.
+    - Groups by session_id and selects the session with the MOST events
+      (rather than simply the last one), which tends to be a more interesting
+      session to replay interactively.
+    - If limit is provided, trims to the most recent N events for that session.
+    """
     db_path = Path.home() / ".blueplane" / "telemetry.db"
     if not db_path.exists():
         raise SystemExit(
@@ -96,11 +106,17 @@ def load_events(
     if not rows:
         return []
 
-    # Auto-select most recent session if session_id was not specified
+    # Auto-select a session if session_id was not specified
     if session_id is None:
-        # The last row has the highest sequence; use its session_id
-        recent_session_id = rows[-1][1]
-        rows = [row for row in rows if row[1] == recent_session_id]
+        # Group by session_id and select the one with the most events.
+        counts: dict[str, int] = {}
+        for _, sess, *_rest in rows:
+            s = str(sess)
+            counts[s] = counts.get(s, 0) + 1
+
+        # Pick the session_id with the maximum count
+        target_session = max(counts.items(), key=lambda kv: kv[1])[0]
+        rows = [row for row in rows if str(row[1]) == target_session]
 
     # Apply limit at the end (most recent N)
     if limit is not None and limit > 0 and len(rows) > limit:
@@ -255,7 +271,10 @@ def main() -> int:
         "--session-id",
         type=str,
         default=None,
-        help="Session ID to replay. If omitted, uses the most recent session for the platform.",
+        help=(
+            "Session ID to replay. If omitted, uses the session for the platform "
+            "with the most events (i.e., the longest session)."
+        ),
     )
     parser.add_argument(
         "--platform",
