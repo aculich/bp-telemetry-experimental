@@ -82,14 +82,20 @@ fi
 # Step 2: Update develop with latest from main
 echo ""
 echo "📋 Step 2: Updating develop branch..."
-git checkout develop 2>/dev/null || {
+# Check if develop exists locally first
+if git show-ref --verify --quiet refs/heads/develop; then
+    # Branch exists locally, just checkout
+    git checkout develop
+elif git show-ref --verify --quiet refs/remotes/origin/develop; then
+    # Branch exists on remote, create tracking branch
     echo "   ⚠️  develop branch doesn't exist locally. Creating from origin..."
     git fetch origin
-    git checkout -b develop origin/develop 2>/dev/null || {
-        echo "   ⚠️  origin/develop doesn't exist. Creating new develop branch..."
-        git checkout -b develop
-    }
-}
+    git checkout -b develop origin/develop
+else
+    # Branch doesn't exist anywhere, create new
+    echo "   ⚠️  develop branch doesn't exist. Creating new develop branch..."
+    git checkout -b develop
+fi
 
 # Merge main into develop to get latest upstream changes
 echo "   Merging main into develop..."
