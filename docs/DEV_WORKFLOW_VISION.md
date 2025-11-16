@@ -1,6 +1,7 @@
 ## Developer Workflow Vision: Branching, PRs, and AI‑Aware Tooling
 
-This document captures how we think about branching, pull requests, CI/CD, and AI‑assisted workflows for this project. It’s meant to evolve alongside the codebase and community.
+This document captures how we think about branching, pull requests, CI/CD, and AI‑assisted workflows for this project. It’s meant to evolve alongside the codebase and community.  
+For task‑level, “how to” documentation, see `DEV_SESSION_WORKFLOW.md`.
 
 ---
 
@@ -26,13 +27,13 @@ This document captures how we think about branching, pull requests, CI/CD, and A
   - Typically exist for a single focused work session.  
   - Merge back into either a feature branch or `develop`, then can be safely deleted.
 
-### 1.2 Scripts
+### 1.2 Scripts (Current Behavior)
 
 - **`sync_upstream.sh`**  
   - Safely syncs `main` with `upstream/main`.  
   - Supports dry‑run mode and merge vs reset semantics.
 
-- **`start_dev_session.sh`**  
+- **`start_dev_session.sh`** (v2)  
   - Steps:
     1. Ensures `main` is synced with upstream (with dry‑run + prompts).
     2. Ensures `develop` is updated from `main`.
@@ -41,10 +42,13 @@ This document captures how we think about branching, pull requests, CI/CD, and A
        - `./scripts/start_dev_session.sh my-feature` → session from `feature/my-feature`.
        - `./scripts/start_dev_session.sh my-feature session-name` → named session from that feature.
     4. Creates or reuses a **session branch** `dev/session-*` off the chosen base branch.
-    5. Stores the base branch in git config: `branch.<session>.baseBranch`.
+    5. Stores the base branch in git config: `branch.<session>.baseBranch` so that `end_dev_session.sh` knows where to merge.
     6. Shows current status and next‑step instructions.
+  - Difference from v1:
+    - v1 treated `develop` as the implicit merge target for all sessions.
+    - v2 makes the base branch explicit (feature or `develop`) and records it for later.
 
-- **`end_dev_session.sh`**  
+- **`end_dev_session.sh`** (v2)  
   - Steps:
     1. Detects uncommitted changes and untracked files.
     2. Uses `llm` (if available) to classify untracked files as “junk” vs “important”.
@@ -53,11 +57,14 @@ This document captures how we think about branching, pull requests, CI/CD, and A
     5. Prompts to commit (default yes), with AI‑suggested commit message templates.
     6. Pushes the session branch (auto or with confirmation).
     7. Determines the **base branch** for this session:
-       - Prefers `branch.<session>.baseBranch` from git config.
+       - Prefers `branch.<session>.baseBranch` from git config (set by `start_dev_session.sh`).
        - Otherwise infers a closest `feature/*` branch; falls back to `develop`.
     8. Prompts to merge session → base branch (default yes).
     9. Uses `llm` to generate a concise merge commit message for the session → base merge.
     10. Performs the merge and returns the working directory to the base branch.
+  - Difference from v1:
+    - v1 always assumed `develop` as the “safe home” for session branches.
+    - v2 merges sessions back into the **correct base branch** (feature or `develop`), which more accurately models where the work conceptually belongs.
 
 - **`resume_dev_session.sh`**  
   - Lists recent `dev/session-*` branches (local + remote), filtered to only those that have commits (non‑empty sessions).  
@@ -327,4 +334,69 @@ Some areas we can explore next:
 
 This document is the place to capture those ideas and decisions as they solidify.
 
+---
+
+## 7. Workflow History / Changelog
+
+This section tracks how the workflow and scripts have evolved over time. It’s intentionally high‑level; see git history for exact diffs.
+
+### v0 – Manual Git, No Session Scripts
+
+- **State**:
+  - `main` tracked this fork’s own changes, not strictly upstream.
+  - No standardized scripts; ad‑hoc branching and syncing.
+- **Pain points**:
+  - Hard to keep `main` aligned with upstream.
+  - No consistent pattern for starting/ending work sessions.
+
+### v1 – Upstream‑Mirrored `main` and Basic Session Scripts
+
+- **Key changes**:
+  - Introduced `sync_upstream.sh`:
+    - `main` became a **mirror of `upstream/main`**.
+    - Force‑sync supported with safety checks and dry‑run mode.
+  - Established `develop` as the fork’s main integration branch.
+  - Introduced `start_dev_session.sh` and `end_dev_session.sh`:
+    - Session branches named `dev/session-{timestamp}` created from `develop`.
+    - `end_dev_session.sh`:
+      - Checked for uncommitted changes.
+      - Committed and pushed work.
+      - Optionally switched back to `develop`.
+  - Documented in early versions of `FORK_SYNC_WORKFLOW.md` and `DEV_SESSION_WORKFLOW.md`.
+
+### v2 – Feature‑Aware Sessions and AI‑Assisted End‑of‑Session Flow
+
+- **Key changes (current behavior)**:
+  - `start_dev_session.sh`:
+    - Still syncs `main` ← `upstream/main` and merges into `develop`.
+    - Now accepts an optional **feature name** and optional **session name**:
+      - `./scripts/start_dev_session.sh` → session from `develop`.
+      - `./scripts/start_dev_session.sh my-feature` → session from `feature/my-feature`.
+      - `./scripts/start_dev_session.sh my-feature session-name` → named session from that feature.
+    - Creates session branches `dev/session-*` and records the base branch in git config:
+      - `branch.dev/session-... .baseBranch = feature/my-feature` or `develop`.
+  - `end_dev_session.sh`:
+    - Uses `llm` to classify untracked files (junk vs important).
+    - Presents junk file options (ignore / leave alone / commit / abort).
+    - Shows exactly which files will be committed, then prompts with a sensible default commit message.
+    - Determines the correct **base branch** for the session:
+      - Uses `branch.<session>.baseBranch` if present.
+      - Otherwise infers the closest `feature/*` branch, falling back to `develop`.
+    - Merges the session branch into that base branch with an AI‑generated merge message.
+    - Leaves you on the base branch (feature or `develop`), not on the temporary session branch.
+  - `resume_dev_session.sh`:
+    - Lists recent `dev/session-*` branches with commits.
+    - Lets you easily resume a session (default: most recent).
+  - Documentation:
+    - `DEV_SESSION_WORKFLOW.md` updated to describe v2 behavior and usage.
+    - `DEV_WORKFLOW_VISION.md` (this file) added to capture the conceptual model and future direction.
+
+### Notes on Backward Compatibility
+
+- Older branches and sessions created under v1:
+  - May lack `branch.<session>.baseBranch` config entries.
+  - v2 scripts handle this by inferring the base branch from git history and defaulting to `develop`.
+- New work should follow the v2 pattern:
+  - Use `start_dev_session.sh` with or without a feature name.
+  - Let `end_dev_session.sh` decide where the session merges based on the stored/inferred base branch.
 
