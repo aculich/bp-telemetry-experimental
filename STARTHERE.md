@@ -804,9 +804,27 @@ npm run watch
 cd src/capture/cursor
 ./install_global_hooks.sh
 
+# Run Python processing server (ingest pipeline)
+cd ../../..
+python scripts/start_server.py
+
 # Check Redis
 redis-cli ping
 redis-cli XREAD COUNT 10 STREAMS telemetry:events 0
+
+# Trace replay tools (SQLite raw_traces)
+
+# Show recent traces for Cursor
+python scripts/show_recent_traces.py --platform cursor --limit 50
+
+# Interactive replay of longest Cursor session
+python scripts/trace_replay.py --platform cursor --limit 200
+
+# Generate an animated GIF of a replay (requires Pillow)
+python scripts/trace_replay.py \
+  --platform cursor \
+  --limit 60 \
+  --gif ./trace_replay_demo.gif
 ```
 
 ### Key File Paths

@@ -196,6 +196,123 @@ High-performance async pipeline for event processing:
 
 [Learn more →](./docs/architecture/layer2_async_pipeline.md)
 
+#### Python Processing Server Ingest (Local Telemetry Server)
+
+The Layer 2 Python processing server is responsible for ingesting all telemetry events
+from Layer 1 (hooks + extension + database monitors), writing them to the local
+SQLite database, and publishing Change Data Capture (CDC) events for slow-path workers.
+
+- **Entry point**: `scripts/start_server.py` (wraps `src.processing.server.TelemetryServer`)
+- **Message queue**: Redis Streams `telemetry:events` (produced by Layer 1)
+- **Storage**: SQLite `~/.blueplane/telemetry.db` (`raw_traces` + conversations)
+- **CDC stream**: Redis Streams `cdc:events` for metrics/conversation workers
+
+To run the processing server locally:
+
+```bash
+# 1. Start Redis (if not already running)
+redis-server
+
+# 2. Initialize Redis streams and SQLite database
+python scripts/init_redis.py
+python scripts/init_database.py
+
+# 3. Start the processing server (ingest + monitors)
+python scripts/start_server.py
+```
+
+To verify that ingest is working end-to-end:
+
+```bash
+# In another terminal, run the ingest smoke test
+python scripts/test_end_to_end.py
+
+# The script will:
+# - Enqueue synthetic events onto telemetry:events via MessageQueueWriter
+# - Wait briefly for the server to ingest them
+# - Verify they appear in SQLite raw_traces (including a decompress/round-trip check)
+# - Check that CDC events are present on the cdc:events stream
+```
+
+This server, together with the Python hooks and Cursor extension described in
+`STARTHERE.md`, forms the Layer 2 portion of the three-layer Cursor instrumentation
+strategy (hooks → Redis → Python server → SQLite/CDC).
+
+##### Trace Replay & GIF Capture
+
+For local inspection and sharing of traces recorded in `raw_traces`, the repo includes
+simple developer tooling:
+
+- `scripts/show_recent_traces.py` – list recent events from `raw_traces`:
+
+  ```bash
+  # Show recent Cursor events
+  python scripts/show_recent_traces.py --platform cursor --limit 50
+
+  # Filter by a specific session
+  python scripts/show_recent_traces.py --session-id curs_... --limit 100
+  ```
+
+- `scripts/trace_replay.py` – curses-based interactive replay and GIF export:
+
+  ```bash
+  # Interactive replay of the longest Cursor session
+  python scripts/trace_replay.py --platform cursor --limit 200
+
+  # Replay a specific session
+  python scripts/trace_replay.py --platform cursor --session-id curs_1763... --limit 200
+
+  # Generate an animated GIF of a replay (requires Pillow)
+  python scripts/trace_replay.py \
+    --platform cursor \
+    --limit 60 \
+    --gif ./trace_replay_demo.gif
+  ```
+
+  **Interactive keys (lower-case):**
+
+  - `q` / `esc`: quit
+  - `j` / `↓`: next event
+  - `k` / `↑`: previous event
+  - `space`: toggle auto-play on/off
+  - `h` / `←`: slow down auto-play (increase delay)
+  - `l` / `→`: speed up auto-play (decrease delay)
+  - `w`: toggle JSON line wrapping
+  - `r`: toggle JSON render mode (pretty vs compact)
+
+  GIF rendering uses a high-quality monospace TrueType font when available
+  (Menlo / SF Mono / JetBrains Mono / Fira Code / Hack, etc.), with extra line
+  spacing and upscaling for legibility. Pillow is an optional dependency listed in
+  `requirements.txt` and is only required if you use the `--gif` flag.
+
+##### Inspecting DLQ and Retry State
+
+The fast-path consumer uses Redis Streams Pending Entries List (PEL) for retries and a
+Dead Letter Queue (DLQ) stream for messages that exceed `max_retries`.
+
+- **DLQ stream**: `telemetry:dlq`
+- **Main queue**: `telemetry:events` (consumer group `processors`)
+
+You can inspect the DLQ and pending state with:
+
+```bash
+# How many messages are in the DLQ?
+redis-cli XLEN telemetry:dlq
+
+# Inspect recent DLQ entries
+redis-cli XREVRANGE telemetry:dlq + - COUNT 10
+
+# Check pending messages for the main consumer group
+redis-cli XPENDING telemetry:events processors
+
+# Inspect a sample of pending entries
+redis-cli XPENDING telemetry:events processors - + 10
+```
+
+Under normal operation you should see:
+- DLQ length at or near 0.
+- Pending entries being drained as the consumer processes events.
+
 ### Layer 3: Interfaces
 
 Multiple ways to access your telemetry data:
