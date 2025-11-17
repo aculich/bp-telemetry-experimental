@@ -272,8 +272,18 @@ class FastPathConsumer:
             for event, msg_id in zip(events, valid_message_ids):
                 platform = event.get('platform', 'cursor')  # Default to cursor for backward compatibility
                 if platform == 'claude_code':
-                    claude_events.append(event)
-                    claude_msg_ids.append(msg_id)
+                    # Only write JSONL/transcript events to claude_raw_traces
+                    # Exclude hook events (SessionStart, UserPromptSubmit, Stop, etc.)
+                    source = event.get('metadata', {}).get('source', '')
+                    hook_type = event.get('hook_type', '')
+
+                    # Only include events from JSONL/transcript monitors
+                    if source in ('jsonl_monitor', 'transcript_monitor') or hook_type == 'JSONLTrace':
+                        claude_events.append(event)
+                        claude_msg_ids.append(msg_id)
+                    else:
+                        # Skip hook events - don't write to any table
+                        logger.debug(f"Skipping Claude Code hook event: {hook_type}")
                 else:
                     cursor_events.append(event)
                     cursor_msg_ids.append(msg_id)
