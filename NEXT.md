@@ -4,13 +4,15 @@
     - You may need to reinstall the v6 extension; session management might work without it, but reinstalling is recommended.
     - First goal is to get this working on your machine and produce at least one example output.
     - After that, use the current scripts plus the Markdown writer/monitor as the foundation to build a new Python server that reads from the workspace databases and the global database, writes outputs, and then we can spin up DuckDB.
+    - Ben is considering either jumping into the claude code implementation to match our new pattern (session start/end from hooks to emulate the cursor extension, then file watching the .jsonl to capture traces)
+
 ---
 
 - Relevant Files (subset, might be more)
-    - src/processing/cursor/markdown_writer.py — reads Blueplane telemetry DB and writes per-workspace Markdown
-    - src/processing/cursor/markdown_monitor.py — watches DB changes (watchdog/poll) and triggers writes with debounce
+    - src/processing/cursor/markdown_writer.py — reads Cursor workspace `state.vscdb` and writes per-workspace Markdown
+    - src/processing/cursor/markdown_monitor.py — watches Cursor DB changes (watchdog/poll) and triggers writes with debounce
     - src/processing/cursor/README_MARKDOWN.md — implementation summary and usage notes
-    - server.py — integrates/starts the Markdown monitor alongside the telemetry server
+    - src/processing/server.py — integrates/starts the Markdown monitor alongside the telemetry server
     - Workspace output path: <workspace>/.history/{workspace_hash}_{timestamp}.md (ensure .history exists)
 
 - Shared understanding
@@ -27,7 +29,7 @@
 Feature request style next steps
 
 - Title
-  - Workspace Markdown History from Telemetry DB with Background Monitor
+  - Workspace Markdown History from Cursor Databases with Background Monitor
 
 - Problem
   - We need reliable, per-workspace narrative artifacts of Cursor/Blueplane activity without manual export, and a cleaner server path that reads from workspace/global DBs.
@@ -44,8 +46,8 @@ Feature request style next steps
 
 - Requirements
   - If workspace contains .history directory, writer outputs files named {workspace_hash}_{timestamp}.md.
-  - Monitor runs when telemetry server starts; uses watchdog or 2‑minute polling fallback; ~10–12s debounce.
-  - Reads from Blueplane telemetry DB; supports keys: a1service.generations, a1service.prompts, composer.composerData, workbench.backgroundComposer.workspacePersistentData, workbench.window.extInfo, interactive.sessions, history.entries, cursorWorkbenchOpenedDate.
+  - Monitor runs when telemetry server starts; uses watchdog or 2‑minute polling fallback; customizable (~2s for dev/testing and otherwise ~10-12s) debounce plus a 2‑minute polling safety net.
+  - Reads from Cursor workspace databases (ItemTable in `state.vscdb`); supports keys: aiService.generations, aiService.prompts, composer.composerData, workbench.backgroundComposer.workspacePersistentData, workbench.agentMode.exitInfo, interactive.sessions, history.entries, cursorAuth/workspaceOpenedDate.
   - Works with extension-provided session/workspace context; logs path mappings.
 
 - Setup/Acceptance criteria
@@ -76,10 +78,10 @@ Feature request style next steps
      - README_MARKDOWN.md: setup, config, run, sample output.
 
 - Milestones
-  - M1: Local Markdown file generated from one workspace.
-  - M2: New server module reading workspace/global DBs with monitor integrated.
-  - M3: Configurable output location; logging for workspace/session mapping.
-  - M4: DuckDB sink scaffolded and behind flag.
+  - [X] M1: Local Markdown file generated from one workspace.
+  - [ ] M2: New server module reading workspace/global DBs with monitor integrated.
+  - [ ] M3: Configurable output location; logging for workspace/session mapping.
+  - [ ] M4: DuckDB sink scaffolded and behind flag.
 
 - Risks/mitigations
   - Extension dependency ambiguity: log session→workspace map; fallback prompts.

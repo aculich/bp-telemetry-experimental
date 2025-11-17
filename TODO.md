@@ -1,3 +1,9 @@
+## Current Priority: Workspace Markdown History
+
+- [ ] Workspace Markdown History from Telemetry DB with Background Monitor (see [NEXT.md](NEXT.md) for detailed plan)
+
+---
+
 ## Session TODO: feature/python-server-ingest
 
 > Working notes for this dev session on the Python processing server ingestion path.
