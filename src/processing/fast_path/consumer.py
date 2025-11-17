@@ -263,23 +263,64 @@ class FastPathConsumer:
             return []
 
         try:
-            # Write to SQLite (synchronous)
+            # Separate events by platform for routing to correct tables
+            cursor_events = []
+            claude_events = []
+            cursor_msg_ids = []
+            claude_msg_ids = []
+
+            for event, msg_id in zip(events, valid_message_ids):
+                platform = event.get('platform', 'cursor')  # Default to cursor for backward compatibility
+                if platform == 'claude_code':
+                    # Only write JSONL/transcript events to claude_raw_traces
+                    # Exclude hook events (SessionStart, UserPromptSubmit, Stop, etc.)
+                    source = event.get('metadata', {}).get('source', '')
+                    hook_type = event.get('hook_type', '')
+
+                    # Only include events from JSONL/transcript monitors
+                    if source in ('jsonl_monitor', 'transcript_monitor') or hook_type == 'JSONLTrace':
+                        claude_events.append(event)
+                        claude_msg_ids.append(msg_id)
+                    else:
+                        # Skip hook events - don't write to any table
+                        logger.debug(f"Skipping Claude Code hook event: {hook_type}")
+                else:
+                    cursor_events.append(event)
+                    cursor_msg_ids.append(msg_id)
+
+            # Write to SQLite (synchronous) - route to appropriate tables
             start_time = time.time()
-            sequences = self.sqlite_writer.write_batch_sync(events)
+            all_sequences = []
+            all_events = []
+
+            # Write Cursor events to raw_traces table
+            if cursor_events:
+                cursor_sequences = self.sqlite_writer.write_batch_sync(cursor_events)
+                all_sequences.extend(cursor_sequences)
+                all_events.extend(cursor_events)
+                logger.debug(f"Wrote {len(cursor_events)} Cursor events to raw_traces")
+
+            # Write Claude Code events to claude_raw_traces table
+            if claude_events:
+                claude_sequences = self.sqlite_writer.write_claude_batch_sync(claude_events)
+                all_sequences.extend(claude_sequences)
+                all_events.extend(claude_events)
+                logger.debug(f"Wrote {len(claude_events)} Claude Code events to claude_raw_traces")
+
             write_duration = time.time() - start_time
-            
+
             # Track write latency for backpressure
             self.write_times.append(write_duration)
-            
+
             # Publish CDC events
-            for sequence, event in zip(sequences, events):
+            for sequence, event in zip(all_sequences, all_events):
                 self.cdc_publisher.publish(sequence, event)
 
-            logger.debug(f"Processed batch: {len(events)} events, sequences {sequences[0]}-{sequences[-1]}, duration: {write_duration:.3f}s")
-            
+            logger.debug(f"Processed batch: {len(events)} events ({len(cursor_events)} Cursor, {len(claude_events)} Claude), duration: {write_duration:.3f}s")
+
             # ACK messages immediately after successful write
             self._ack_messages(valid_message_ids)
-            
+
             return valid_message_ids
 
         except Exception as e:

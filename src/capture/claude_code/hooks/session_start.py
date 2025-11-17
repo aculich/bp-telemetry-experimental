@@ -30,11 +30,13 @@ class SessionStartHook(ClaudeCodeHookBase):
         """Execute hook logic."""
         # Extract session data from stdin
         source = self.input_data.get('source', 'unknown')
+        workspace_path = self.input_data.get('workspace_path', '')
 
         # Build event payload
         payload = {
             'source': source,
             'session_id': self.session_id,
+            'workspace_path': workspace_path,
         }
 
         # Build and enqueue event
