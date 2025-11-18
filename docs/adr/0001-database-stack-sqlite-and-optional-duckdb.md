@@ -101,7 +101,7 @@ This means:
 ### Follow-ups
 
 - **Docs**
-  - Cross-link this ADR from `docs/SQLITE_VS_DUCKDB.md` and `ARCHITECTURE.md`.
+  - Cross-link this ADR from [`../SQLITE_VS_DUCKDB.md`](../SQLITE_VS_DUCKDB.md) and [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
   - Make it clear in user-facing docs that DuckDB is an **optional analytics add-on**.
 
 - **Implementation**
