@@ -25,6 +25,7 @@ from .fast_path.cdc_publisher import CDCPublisher
 from .cursor.session_monitor import SessionMonitor
 from .cursor.database_monitor import CursorDatabaseMonitor
 from .cursor.markdown_monitor import CursorMarkdownMonitor
+from .antigravity.database_monitor import AntigravityDatabaseMonitor
 from .claude_code.transcript_monitor import ClaudeCodeTranscriptMonitor
 from ..capture.shared.config import Config
 
@@ -60,6 +61,7 @@ class TelemetryServer:
         self.consumer: Optional[FastPathConsumer] = None
         self.session_monitor: Optional[SessionMonitor] = None
         self.cursor_monitor: Optional[CursorDatabaseMonitor] = None
+        self.antigravity_monitor: Optional[AntigravityDatabaseMonitor] = None
         self.markdown_monitor: Optional[CursorMarkdownMonitor] = None
         self.claude_code_monitor: Optional[ClaudeCodeTranscriptMonitor] = None
         self.running = False
@@ -168,6 +170,33 @@ class TelemetryServer:
             )
             logger.info("Cursor markdown monitor initialized")
 
+    def _initialize_antigravity_monitor(self) -> None:
+        """Initialize Antigravity database monitor."""
+        # Check if antigravity monitoring is enabled (default: True)
+        enabled = True  # TODO: Load from config
+
+        if not enabled:
+            logger.info("Antigravity database monitoring is disabled")
+            return
+
+        logger.info("Initializing Antigravity database monitor")
+
+        # Reuse session monitor (or create if not exists)
+        if not self.session_monitor:
+            self.session_monitor = SessionMonitor(self.redis_client)
+
+        # Create database monitor
+        self.antigravity_monitor = AntigravityDatabaseMonitor(
+            redis_client=self.redis_client,
+            session_monitor=self.session_monitor,
+            poll_interval=30.0,
+            sync_window_hours=24,
+            query_timeout=1.5,
+            max_retries=3,
+        )
+
+        logger.info("Antigravity database monitor initialized")
+
     def _initialize_claude_code_monitor(self) -> None:
         """Initialize Claude Code transcript monitor."""
         # Check if claude code monitoring is enabled (default: True)
@@ -206,6 +235,7 @@ class TelemetryServer:
             self._initialize_redis()
             self._initialize_consumer()
             self._initialize_cursor_monitor()
+            self._initialize_antigravity_monitor()
             self._initialize_claude_code_monitor()
 
             # Start monitors in background threads (if enabled)
@@ -247,6 +277,17 @@ class TelemetryServer:
                     markdown_thread = threading.Thread(target=run_markdown_monitor, daemon=True)
                     markdown_thread.start()
                     self.monitor_threads.append(markdown_thread)
+
+            if self.antigravity_monitor:
+                def run_antigravity_monitor():
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self.antigravity_monitor.start())
+                
+                antigravity_thread = threading.Thread(target=run_antigravity_monitor, daemon=True)
+                antigravity_thread.start()
+                self.monitor_threads.append(antigravity_thread)
 
             if self.claude_code_monitor:
                 def run_claude_code_monitor():
@@ -304,6 +345,12 @@ class TelemetryServer:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self.cursor_monitor.stop())
+
+        if self.antigravity_monitor:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.antigravity_monitor.stop())
 
         if self.markdown_monitor:
             import asyncio

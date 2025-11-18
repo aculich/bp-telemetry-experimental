@@ -86,3 +86,6 @@ docs/example_cursor_capture/
 
 # History files (generated markdown from Cursor database)
 **/.history/
+
+# Binaries
+binaries/

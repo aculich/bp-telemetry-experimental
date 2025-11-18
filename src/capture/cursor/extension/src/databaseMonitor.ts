@@ -13,14 +13,14 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import Database from "better-sqlite3";
-import chokidar from "chokidar";
+import { FSWatcher, watch } from "chokidar";
 import { QueueWriter } from "./queueWriter";
 import { TelemetryEvent } from "./types";
 
 export class DatabaseMonitor {
   private dbPath: string | null = null;
   private db: Database.Database | null = null;
-  private watcher: chokidar.FSWatcher | null = null;
+  private watcher: FSWatcher | null = null;
   private pollInterval: NodeJS.Timeout | null = null;
   private lastDataVersion: number = 0;
   private isMonitoring: boolean = false;
@@ -182,7 +182,7 @@ export class DatabaseMonitor {
   private startFileWatcher(): void {
     if (!this.dbPath) return;
 
-    this.watcher = chokidar.watch(this.dbPath, {
+    this.watcher = watch(this.dbPath, {
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {
