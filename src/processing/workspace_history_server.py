@@ -116,6 +116,7 @@ class WorkspaceHistoryServer:
             use_utc=True,
             global_output_dir=global_output_dir,
             prefer_global_output=True,
+            duckdb_adapter=self.duckdb_adapter,
         )
 
         logger.info(

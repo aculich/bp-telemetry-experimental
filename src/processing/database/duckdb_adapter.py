@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
+from datetime import datetime
+import json
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -91,5 +94,80 @@ class DuckDBAdapter:
             self._conn.close()
         except Exception:
             logger.debug("DuckDB connection already closed or failed to close")
+
+    def insert_workspace_snapshot(
+        self,
+        workspace_hash: str,
+        workspace_path: str,
+        markdown_path: Path,
+        session_id: Optional[str] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Insert a workspace snapshot record into DuckDB.
+
+        This stores a minimal row in raw_traces with event_type=workspace_snapshot
+        and a JSON payload describing where the Markdown artifact lives.
+        """
+        now = datetime.utcnow()
+        event_id = f"wsnap:{workspace_hash}:{int(time.time() * 1000)}"
+
+        payload: Dict[str, Any] = {
+            "workspace_hash": workspace_hash,
+            "workspace_path": workspace_path,
+            "markdown_path": str(markdown_path),
+        }
+        if extra_metadata:
+            payload.update(extra_metadata)
+
+        # Insert row; many columns intentionally left NULL for now
+        self._conn.execute(
+            """
+            INSERT INTO raw_traces (
+                sequence,
+                ingested_at,
+                event_id,
+                session_id,
+                event_type,
+                platform,
+                timestamp,
+                workspace_hash,
+                model,
+                tool_name,
+                duration_ms,
+                tokens_used,
+                lines_added,
+                lines_removed,
+                event_data_json
+            ) VALUES (
+                NULL,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                ?
+            )
+            """,
+            [
+                now,
+                event_id,
+                session_id or "",
+                "workspace_snapshot",
+                "cursor",
+                now,
+                workspace_hash,
+                json.dumps(payload),
+            ],
+        )
+        logger.debug("Inserted workspace snapshot into DuckDB: %s", event_id)
 
 

@@ -27,6 +27,7 @@ except ImportError:
 from .markdown_writer import CursorMarkdownWriter
 from .workspace_mapper import WorkspaceMapper
 from .session_monitor import SessionMonitor
+from ..database.duckdb_adapter import DuckDBAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ class CursorMarkdownMonitor:
         use_utc: bool = True,
         global_output_dir: Optional[Path] = None,
         prefer_global_output: bool = False,
+        duckdb_adapter: Optional[DuckDBAdapter] = None,
     ):
         """
         Initialize markdown monitor.
@@ -114,6 +116,9 @@ class CursorMarkdownMonitor:
         # Output configuration
         self.global_output_dir: Optional[Path] = global_output_dir
         self.prefer_global_output = prefer_global_output
+
+        # Optional DuckDB adapter (for workspace snapshot metadata)
+        self.duckdb_adapter: Optional[DuckDBAdapter] = duckdb_adapter
 
         # Track which workspaces we've already logged mappings for
         self._logged_mappings: set[str] = set()
@@ -279,14 +284,29 @@ class CursorMarkdownMonitor:
 
             # Write markdown
             output_path = await writer.write_from_database(db_path, workspace_hash)
-            
+
             if output_path:
-                logger.info(f"Wrote markdown: {output_path}")
+                logger.info("Wrote markdown: %s", output_path)
+
+                # Also record a workspace snapshot row in DuckDB if enabled
+                if self.duckdb_adapter is not None:
+                    active_workspaces = self.session_monitor.get_active_workspaces()
+                    session_info = active_workspaces.get(workspace_hash, {})
+                    session_id = session_info.get("session_id")
+                    try:
+                        self.duckdb_adapter.insert_workspace_snapshot(
+                            workspace_hash=workspace_hash,
+                            workspace_path=workspace_path or "",
+                            markdown_path=output_path,
+                            session_id=session_id,
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to insert workspace snapshot into DuckDB: %s", e)
             else:
-                logger.debug(f"No markdown written for {db_path} (no data)")
+                logger.debug("No markdown written for %s (no data)", db_path)
 
         except Exception as e:
-            logger.error(f"Error writing markdown for {db_path}: {e}")
+            logger.error("Error writing markdown for %s: %s", db_path, e)
 
     def _get_output_dir(self, workspace_hash: str, workspace_path_obj: Path) -> Path:
         """
