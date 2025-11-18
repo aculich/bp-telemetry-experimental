@@ -114,6 +114,9 @@ class CursorMarkdownMonitor:
         # Output configuration
         self.global_output_dir: Optional[Path] = global_output_dir
         self.prefer_global_output = prefer_global_output
+
+        # Track which workspaces we've already logged mappings for
+        self._logged_mappings: set[str] = set()
         
         # Track markdown writers per workspace
         self.writers: Dict[str, CursorMarkdownWriter] = {}
@@ -257,9 +260,23 @@ class CursorMarkdownMonitor:
                     output_dir=output_dir,
                     use_utc=self.use_utc
                 )
-            
+
             writer = self.writers[workspace_hash]
-            
+
+            # Log the workspace/session/output mapping once per workspace for observability
+            if workspace_hash not in self._logged_mappings:
+                active_workspaces = self.session_monitor.get_active_workspaces()
+                session_info = active_workspaces.get(workspace_hash, {})
+                session_id = session_info.get("session_id")
+                logger.info(
+                    "Markdown history mapping: workspace_hash=%s, session_id=%s, workspace_path=%s, output_dir=%s",
+                    workspace_hash,
+                    session_id,
+                    workspace_path,
+                    writer.output_dir,
+                )
+                self._logged_mappings.add(workspace_hash)
+
             # Write markdown
             output_path = await writer.write_from_database(db_path, workspace_hash)
             
