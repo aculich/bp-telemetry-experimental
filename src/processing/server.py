@@ -24,6 +24,7 @@ from .fast_path.consumer import FastPathConsumer
 from .fast_path.cdc_publisher import CDCPublisher
 from .cursor.session_monitor import SessionMonitor
 from .cursor.database_monitor import CursorDatabaseMonitor
+from .cursor.markdown_monitor import CursorMarkdownMonitor
 from .claude_code.transcript_monitor import ClaudeCodeTranscriptMonitor
 from .claude_code.session_monitor import ClaudeCodeSessionMonitor
 from .claude_code.jsonl_monitor import ClaudeCodeJSONLMonitor
@@ -62,6 +63,7 @@ class TelemetryServer:
         self.consumer: Optional[FastPathConsumer] = None
         self.session_monitor: Optional[SessionMonitor] = None
         self.cursor_monitor: Optional[CursorDatabaseMonitor] = None
+        self.markdown_monitor: Optional[CursorMarkdownMonitor] = None
         self.claude_code_monitor: Optional[ClaudeCodeTranscriptMonitor] = None
         self.claude_session_monitor: Optional[ClaudeCodeSessionMonitor] = None
         self.claude_jsonl_monitor: Optional[ClaudeCodeJSONLMonitor] = None
@@ -139,8 +141,9 @@ class TelemetryServer:
 
     def _initialize_cursor_monitor(self) -> None:
         """Initialize Cursor database monitor."""
-        # Check if cursor monitoring is enabled (default: True)
-        enabled = True  # TODO: Load from config
+        # Load cursor config
+        cursor_config = self.config.get_cursor_config("database_monitor")
+        enabled = cursor_config.get("enabled", True)
 
         if not enabled:
             logger.info("Cursor database monitoring is disabled")
@@ -155,13 +158,62 @@ class TelemetryServer:
         self.cursor_monitor = CursorDatabaseMonitor(
             redis_client=self.redis_client,
             session_monitor=self.session_monitor,
-            poll_interval=30.0,
-            sync_window_hours=24,
-            query_timeout=1.5,
-            max_retries=3,
+            poll_interval=cursor_config.get("poll_interval_seconds", 30.0),
+            sync_window_hours=cursor_config.get("sync_window_hours", 24),
+            query_timeout=cursor_config.get("query_timeout_seconds", 1.5),
+            max_retries=cursor_config.get("max_retries", 3),
         )
 
         logger.info("Cursor database monitor initialized")
+
+    def _initialize_markdown_monitor(self) -> None:
+        """Initialize Cursor Markdown History monitor."""
+        # Load cursor config
+        markdown_config = self.config.get_cursor_config("markdown_monitor")
+        duckdb_config = self.config.get_cursor_config("duckdb_sink")
+        
+        enabled = markdown_config.get("enabled", True)
+
+        if not enabled:
+            logger.info("Cursor Markdown History monitoring is disabled")
+            return
+
+        # Require session monitor to be initialized
+        if not self.session_monitor:
+            logger.warning("Session monitor not initialized, cannot start Markdown monitor")
+            return
+
+        logger.info("Initializing Cursor Markdown History monitor")
+
+        # Get output directory from config
+        output_dir = markdown_config.get("output_dir")
+        if output_dir:
+            output_dir = Path(output_dir)
+        
+        # Get DuckDB settings
+        enable_duckdb = duckdb_config.get("enabled", False)
+        duckdb_path = duckdb_config.get("database_path")
+        if duckdb_path:
+            duckdb_path = Path(duckdb_path)
+        
+        # Create markdown monitor
+        self.markdown_monitor = CursorMarkdownMonitor(
+            session_monitor=self.session_monitor,
+            output_dir=output_dir,
+            poll_interval=markdown_config.get("poll_interval_seconds", 120.0),
+            debounce_delay=markdown_config.get("debounce_delay_seconds", 10.0),
+            query_timeout=markdown_config.get("query_timeout_seconds", 1.5),
+            enable_duckdb=enable_duckdb,
+            duckdb_path=duckdb_path,
+        )
+
+        logger.info(
+            f"Cursor Markdown History monitor initialized "
+            f"(output_dir={output_dir or 'workspace/.history/'}, "
+            f"poll_interval={markdown_config.get('poll_interval_seconds', 120)}s, "
+            f"debounce={markdown_config.get('debounce_delay_seconds', 10)}s, "
+            f"duckdb_enabled={enable_duckdb})"
+        )
 
     def _initialize_claude_code_monitor(self) -> None:
         """Initialize Claude Code monitors (session, JSONL, transcript)."""
@@ -224,6 +276,7 @@ class TelemetryServer:
             self._initialize_redis()
             self._initialize_consumer()
             self._initialize_cursor_monitor()
+            self._initialize_markdown_monitor()
             self._initialize_claude_code_monitor()
 
             # Start monitors in background threads (if enabled)
@@ -245,6 +298,19 @@ class TelemetryServer:
                 session_thread.start()
                 cursor_thread.start()
                 self.monitor_threads.extend([session_thread, cursor_thread])
+
+            # Start markdown monitor (if enabled)
+            if self.markdown_monitor:
+                def run_markdown_monitor():
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self.markdown_monitor.start())
+                
+                markdown_thread = threading.Thread(target=run_markdown_monitor, daemon=True)
+                markdown_thread.start()
+                self.monitor_threads.append(markdown_thread)
+                logger.info("Cursor Markdown History monitor started")
 
             # Start Claude Code monitors (if enabled)
             if self.claude_session_monitor and self.claude_jsonl_monitor:
@@ -344,6 +410,12 @@ class TelemetryServer:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self.claude_code_monitor.stop())
+
+        if self.markdown_monitor:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.markdown_monitor.stop())
 
         # Stop Cursor monitors
         if self.cursor_monitor:
