@@ -114,6 +114,9 @@ python scripts/init_redis.py
 
 # 5. Initialize SQLite database
 python scripts/init_database.py
+# Note: If you have an existing database, it will automatically migrate to schema v2
+# The migration creates cursor_sessions table and updates conversations table schema
+# See docs/SESSION_CONVERSATION_SCHEMA.md for migration details
 
 # 6. Install Claude Code hooks
 # TODO: Add Claude Code installation instructions
@@ -173,9 +176,13 @@ python scripts/test_end_to_end.py
 Lightweight telemetry capture that integrates with your IDE:
 
 - **IDE Hooks**: Capture events from Claude Code and other platforms (Claude Code uses hooks)
-- **Session Management**: Cursor extension manages session IDs and captures telemetry events
+- **Session Management**: 
+  - **Cursor**: Extension manages IDE window sessions (stored in `cursor_sessions` table). Each IDE window is a session that can contain multiple conversations.
+  - **Claude Code**: No session concept—sessions and conversations are 1:1. Only conversations are tracked.
 - **Database Monitor**: Python processing server monitors Cursor's SQLite databases (runs in Layer 2)
 - **Message Queue**: Reliable event delivery to Layer 2
+
+**Note**: See [Session & Conversation Schema](./docs/SESSION_CONVERSATION_SCHEMA.md) for details on how sessions and conversations differ across platforms.
 
 [Learn more →](./docs/architecture/layer1_capture.md)
 
@@ -218,6 +225,7 @@ Blueplane Telemetry Core is designed with privacy as the top priority:
 - [Layer 3: CLI Interface](./docs/architecture/layer3_cli_interface.md) - Command-line interface documentation
 - [Layer 3: MCP Server](./docs/architecture/layer3_mcp_server.md) - Model Context Protocol integration
 - [Database Architecture](./docs/architecture/layer2_db_architecture.md) - Storage design details
+- [Session & Conversation Schema](./docs/SESSION_CONVERSATION_SCHEMA.md) - Schema design for sessions and conversations across platforms
 
 ## Performance
 

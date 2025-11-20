@@ -89,6 +89,17 @@ stream:
 
 ## Session Tracking
 
+### Sessions vs Conversations
+
+**Important**: Cursor has a distinct concept of **sessions** and **conversations**:
+
+- **Session**: Represents an IDE window/workspace instance. Created when you open a Cursor workspace. Stored in `cursor_sessions` table.
+- **Conversation**: Represents a single chat thread within a session. Multiple conversations can occur within one session. Stored in `conversations` table with `session_id` referencing the session.
+
+This is different from Claude Code, where sessions and conversations are 1:1 (no separate session concept).
+
+See [Session & Conversation Schema](../../../docs/SESSION_CONVERSATION_SCHEMA.md) for complete details.
+
 ### Session Files
 
 Each workspace gets a unique session file:
@@ -112,6 +123,8 @@ Filename is SHA256 hash of workspace path (truncated to 16 chars).
   "updated_at": "2025-11-11T10:30:00.000Z"
 }
 ```
+
+**Note**: The `CURSOR_SESSION_ID` in the session file is the **external session ID**. The processing server creates an internal UUID (`cursor_sessions.id`) and stores the mapping. Conversations reference the internal session ID via `conversations.session_id`.
 
 ### Session Events
 
@@ -237,10 +250,12 @@ python scripts/start_server.py  # Should show database monitor activity
 The extension-based approach supports multiple Cursor workspaces simultaneously:
 
 1. Each workspace gets unique session file (workspace hash)
-2. Each workspace has unique session ID
-3. Extension sends session events with workspace hash for each workspace
-4. Database monitor tracks all Cursor instances via PID
-5. All events tagged with workspace_hash and PID
+2. Each workspace has unique session ID (external session ID from extension)
+3. Processing server creates internal session record in `cursor_sessions` table
+4. Extension sends session events with workspace hash for each workspace
+5. Database monitor tracks all Cursor instances via PID
+6. All events tagged with workspace_hash and PID
+7. Multiple conversations can occur within each session (stored in `conversations` table with `session_id` reference)
 
 ## Uninstallation
 
