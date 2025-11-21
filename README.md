@@ -145,8 +145,9 @@ from src.processing.database.sqlite_client import SQLiteClient
 from pathlib import Path
 client = SQLiteClient(str(Path.home() / '.blueplane' / 'telemetry.db'))
 with client.get_connection() as conn:
-    cursor = conn.execute('SELECT COUNT(*) FROM raw_traces')
-    print(f'Total events in database: {cursor.fetchone()[0]}')
+    # Check Cursor events
+    cursor = conn.execute('SELECT COUNT(*) FROM cursor_raw_traces')
+    print(f'Total Cursor events in database: {cursor.fetchone()[0]}')
 "
 
 # Run end-to-end test

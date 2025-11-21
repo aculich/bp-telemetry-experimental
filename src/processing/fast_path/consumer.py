@@ -290,17 +290,15 @@ class FastPathConsumer:
                     cursor_events.append(event)
                     cursor_msg_ids.append(msg_id)
 
-            # Write to SQLite (synchronous) - route to appropriate tables
+            # Write to SQLite (synchronous) - route to platform-specific tables
             start_time = time.time()
             all_sequences = []
             all_events = []
 
-            # Write Cursor events to raw_traces table
+            # Note: Cursor events are handled by CursorRawTracesWriter in the event_consumer module
+            # This fast path consumer currently only handles Claude Code events
             if cursor_events:
-                cursor_sequences = self.sqlite_writer.write_batch_sync(cursor_events)
-                all_sequences.extend(cursor_sequences)
-                all_events.extend(cursor_events)
-                logger.debug(f"Wrote {len(cursor_events)} Cursor events to raw_traces")
+                logger.debug(f"Skipping {len(cursor_events)} Cursor events (handled by CursorRawTracesWriter)")
 
             # Write Claude Code events to claude_raw_traces table
             if claude_events:
