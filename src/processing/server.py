@@ -19,9 +19,9 @@ import redis
 
 from .database.sqlite_client import SQLiteClient
 from .database.schema import create_schema
-from .claude.event_consumer import ClaudeEventConsumer
+from .claude_code.event_consumer import ClaudeEventConsumer
 from .common.cdc_publisher import CDCPublisher
-from .claude.raw_traces_writer import ClaudeRawTracesWriter
+from .claude_code.raw_traces_writer import ClaudeRawTracesWriter
 from .cursor.session_monitor import SessionMonitor
 from .cursor.database_monitor import CursorDatabaseMonitor
 from .cursor.markdown_monitor import CursorMarkdownMonitor
