@@ -19,7 +19,7 @@ import redis
 
 from ..fast_path.batch_manager import BatchManager
 from ..fast_path.cdc_publisher import CDCPublisher
-from ..database.writer import SQLiteBatchWriter
+from .raw_traces_writer import ClaudeRawTracesWriter
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class ClaudeEventConsumer:
     def __init__(
         self,
         redis_client: redis.Redis,
-        sqlite_writer: SQLiteBatchWriter,
+        claude_writer: ClaudeRawTracesWriter,
         cdc_publisher: CDCPublisher,
         stream_name: str = "telemetry:events",
         consumer_group: str = "processors",
@@ -59,11 +59,11 @@ class ClaudeEventConsumer:
         max_retries: int = 3,
     ):
         """
-        Initialize fast path consumer.
+        Initialize Claude event consumer.
 
         Args:
             redis_client: Redis client instance
-            sqlite_writer: SQLite batch writer
+            claude_writer: Claude raw traces writer
             cdc_publisher: CDC publisher
             stream_name: Redis Stream name
             consumer_group: Consumer group name
@@ -74,7 +74,7 @@ class ClaudeEventConsumer:
             max_retries: Maximum retries before DLQ
         """
         self.redis_client = redis_client
-        self.sqlite_writer = sqlite_writer
+        self.claude_writer = claude_writer
         self.cdc_publisher = cdc_publisher
         self.stream_name = stream_name
         self.consumer_group = consumer_group
@@ -300,7 +300,7 @@ class ClaudeEventConsumer:
             all_events = []
 
             if claude_events:
-                claude_sequences = self.sqlite_writer.write_claude_batch_sync(claude_events)
+                claude_sequences = self.claude_writer.write_batch_sync(claude_events)
                 all_sequences.extend(claude_sequences)
                 all_events.extend(claude_events)
                 logger.debug(f"Wrote {len(claude_events)} Claude Code events to claude_raw_traces")

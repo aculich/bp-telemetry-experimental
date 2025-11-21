@@ -12,5 +12,6 @@ This module contains all Claude Code specific telemetry processing:
 """
 
 from .event_consumer import ClaudeEventConsumer
+from .raw_traces_writer import ClaudeRawTracesWriter
 
-__all__ = ["ClaudeEventConsumer"]
+__all__ = ["ClaudeEventConsumer", "ClaudeRawTracesWriter"]
