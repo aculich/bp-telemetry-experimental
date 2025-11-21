@@ -534,7 +534,8 @@ class CDCWorkQueue:
 ### Fast Path Integration
 
 ```python
-# fast_path/integration.py (pseudocode)
+# Platform-specific event consumers (claude_code/event_consumer.py, cursor/event_consumer.py)
+# Pseudocode showing the integration pattern:
 
 class FastPathIntegration:
     """Integrates databases with fast path consumer. Zero reads, pure writes."""

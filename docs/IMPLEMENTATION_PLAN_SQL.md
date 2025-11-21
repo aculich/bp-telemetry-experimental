@@ -1,8 +1,13 @@
 # Implementation Plan: Cursor Hooks and Traces to SQL
 
-**Status**: Planning  
-**Target**: Layer 2 Processing Pipeline  
+**Status**: Historical - Implementation Complete
+**Target**: Layer 2 Processing Pipeline
 **Date**: January 2025
+
+> **Note**: This document represents the original implementation plan from January 2025. The implementation has been completed with some structural changes:
+> - The `fast_path/` directory has been replaced with platform-specific directories: `claude_code/` and `cursor/`
+> - Common utilities (BatchManager, CDCPublisher) are now in `common/` directory
+> - See [README.md](../README.md) for current directory structure
 
 ---
 
