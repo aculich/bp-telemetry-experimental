@@ -32,6 +32,7 @@ When checking out a new git worktree, the `.beads/beads.db` file (SQLite cache) 
 3. **Then proceed with normal session start**: Run `bd ready --json` to check available work
 
 **Example initialization:**
+
 ```bash
 # After checking out new worktree
 if [ -d .beads ] && [ -f .beads/issues.jsonl ] && [ ! -f .beads/beads.db ]; then
@@ -307,7 +308,7 @@ tests/
 - **Performance Critical**: Fast path must be <10ms P95
 - **Eventual Consistency**: Metrics can lag by seconds
 - **Error Resilience**: Failed events go to DLQ, never block
-- **Zero Config**: Embedded databases, no setup required
+- **Zero Config**: Works out of the box with defaults, optional `~/.blueplane/config.yaml` for customization
 
 ### Performance Requirements
 
@@ -348,8 +349,89 @@ tests/
 
 ### Configuration
 
-- **~/.blueplane/config.yaml** - User configuration
-- **src/config/defaults.py** - Default settings
+Blueplane Telemetry Core uses a unified YAML configuration system:
+
+- **config/config.yaml** - Default configuration (bundled with installation)
+- **~/.blueplane/config.yaml** - User overrides (highest precedence)
+- **config/config.schema.yaml** - Complete schema documentation
+- **src/capture/shared/config.py** - Python configuration loader (`Config` class)
+- **src/capture/shared/config_models.py** - Typed configuration models (dataclasses)
+- **src/capture/cursor/extension/src/config.ts** - TypeScript configuration loader (extension)
+
+#### Configuration Loading
+
+The `Config` class searches for configuration in this order:
+
+1. `~/.blueplane/config.yaml` (user overrides)
+2. `config/config.yaml` (relative to source code, for development)
+3. Package installation location (for installed packages)
+4. `/etc/blueplane/config.yaml` (system-wide)
+
+The config loader automatically:
+
+- Expands `~` in paths to home directory
+- Merges user config with defaults
+- Provides dot-notation access: `config.get("redis.connection.host")`
+- Returns typed objects for common sections: `config.redis`, `config.get_stream_config()`
+
+#### Configuration Structure
+
+The unified config includes these sections:
+
+- **paths**: All file and directory paths (database, IDE locations, workspace storage)
+- **redis**: Connection settings, connection pool, socket keepalive
+- **streams**: Redis stream configurations (message_queue, dlq, cdc)
+- **timeouts**: Database, Redis, session, and extension timeouts
+- **monitoring**: Poll intervals, thresholds, health checks for all monitors
+- **batching**: Batch sizes and timeouts for event processing
+- **logging**: Log levels and feature-specific logging flags
+- **features**: Feature flags (e.g., `duckdb_sink.enabled`)
+
+#### Using Configuration in Code
+
+```python
+from src.capture.shared.config import Config
+
+# Load config (searches multiple locations automatically)
+config = Config()
+
+# Access Redis settings
+redis_config = config.redis
+host = redis_config.host
+port = redis_config.port
+
+# Get stream configuration
+stream_config = config.get_stream_config("message_queue")
+max_length = stream_config.max_length
+
+# Get monitoring config for specific section
+cursor_db_config = config.get_monitoring_config("cursor_database")
+poll_interval = cursor_db_config.get("poll_interval", 30.0)
+
+# Get arbitrary config value with dot notation
+telemetry_db_path = config.get_path("paths.database.telemetry_db")
+redis_host = config.get("redis.connection.host", "localhost")
+```
+
+#### TypeScript Extension Configuration
+
+The Cursor extension (`src/capture/cursor/extension/src/config.ts`) loads the same `config.yaml` file and provides typed access:
+
+```typescript
+import { ExtensionConfig, loadExtensionConfig } from "./config";
+
+const config = loadExtensionConfig();
+const redisHost = config.redis.connection.host;
+const pollInterval = config.monitoring.cursor_database.poll_interval;
+```
+
+#### Adding New Configuration Options
+
+1. Add the option to `config/config.yaml` with a default value
+2. Document it in `config/config.schema.yaml` with type, default, and description
+3. Add typed accessor in `src/capture/shared/config.py` if needed (or use `config.get()`)
+4. Update `src/capture/shared/config_models.py` if adding new sections
+5. Update TypeScript types in `src/capture/cursor/extension/src/config.ts` if needed by extension
 
 ## When Adding Features
 
@@ -423,6 +505,16 @@ redis-cli XLEN telemetry:cdc
 # Monitor metrics
 redis-cli TS.RANGE telemetry:metrics:tokens_per_minute - + COUNT 100
 
+# Configuration debugging
+# Test configuration loading
+python -c "from src.capture.shared.config import Config; c = Config(); print(f'Config dir: {c.config_dir}'); print(f'Redis host: {c.redis.host}')"
+
+# View active configuration (shows merged user + defaults)
+python test_config.py
+
+# Check which config file is being used
+python -c "from src.capture.shared.config import Config; c = Config(); print(f'Using config from: {c.config_dir}')"
+
 # Platform-specific debugging
 # Claude sessions:
 ls -la ~/.claude/projects/*/
@@ -466,6 +558,14 @@ sqlite3 ~/Library/Application\ Support/Cursor/User/workspaceStorage/*/state.vscd
 - Ensure Redis is running locally
 - Check ~/.blueplane/ directory permissions
 - Verify Python 3.8+ is installed
+
+### Configuration Issues
+
+- Verify config file exists: `ls -la ~/.blueplane/config.yaml` or `ls -la config/config.yaml`
+- Test config loading: `python test_config.py`
+- Check config syntax: `python -c "import yaml; yaml.safe_load(open('config/config.yaml'))"`
+- Verify path expansion: `python -c "from src.capture.shared.config import Config; c = Config(); print(c.get_path('paths.database.telemetry_db'))"`
+- Check Redis connection settings match your Redis instance
 
 ---
 

@@ -177,7 +177,7 @@ python scripts/test_end_to_end.py
 Lightweight telemetry capture that integrates with your IDE:
 
 - **IDE Hooks**: Capture events from Claude Code and other platforms (Claude Code uses hooks)
-- **Session Management**: 
+- **Session Management**:
   - **Cursor**: Extension manages IDE window sessions (stored in `cursor_sessions` table). Each IDE window is a session that can contain multiple conversations.
   - **Claude Code**: No session concept—sessions and conversations are 1:1. Only conversations are tracked.
 - **Database Monitor**: Python processing server monitors Cursor's SQLite databases (runs in Layer 2)
@@ -217,6 +217,81 @@ Blueplane Telemetry Core is designed with privacy as the top priority:
 - No network transmission of telemetry data
 - No cloud services or external dependencies
 - You own and control all your data
+
+## Configuration
+
+Blueplane Telemetry Core uses a unified YAML configuration system that controls all aspects of the system:
+
+### Configuration Files
+
+- **Default Configuration**: `config/config.yaml` - Default settings bundled with the installation
+- **User Overrides**: `~/.blueplane/config.yaml` - User-specific overrides (highest precedence)
+- **Schema Documentation**: `config/config.schema.yaml` - Complete documentation of all configuration options
+
+### Configuration Sections
+
+The unified configuration includes:
+
+- **Paths**: Database locations, IDE paths, workspace storage
+- **Redis**: Connection settings, connection pool, socket keepalive
+- **Streams**: Message queue, dead letter queue (DLQ), change data capture (CDC) settings
+- **Timeouts**: Database, Redis, session, and extension timeouts
+- **Monitoring**: Poll intervals, thresholds, health checks for all monitors
+- **Batching**: Batch sizes and timeouts for event processing
+- **Logging**: Log levels and feature-specific logging flags
+- **Features**: Feature flags (e.g., DuckDB sink)
+
+### Configuration Precedence
+
+Configuration is loaded in this order (highest to lowest precedence):
+
+1. `~/.blueplane/config.yaml` (user overrides)
+2. `config/config.yaml` (default configuration)
+3. Schema defaults (fallback values)
+
+### Example: Customizing Configuration
+
+```bash
+# Create user config directory
+mkdir -p ~/.blueplane
+
+# Copy default config as starting point
+cp config/config.yaml ~/.blueplane/config.yaml
+
+# Edit to customize (e.g., change Redis port)
+# paths:
+#   blueplane_home: "~/.blueplane"
+# redis:
+#   connection:
+#     host: localhost
+#     port: 6380  # Custom Redis port
+# monitoring:
+#   cursor_database:
+#     poll_interval: 60.0  # Poll every 60 seconds instead of 30
+```
+
+### Path Expansion
+
+All paths in configuration support `~` expansion to your home directory:
+
+```yaml
+paths:
+  database:
+    telemetry_db: "~/.blueplane/telemetry.db" # Expands to /Users/username/.blueplane/telemetry.db
+```
+
+### Platform-Specific Paths
+
+Cursor IDE paths are platform-specific. The default configuration includes macOS paths. For other platforms, override in `~/.blueplane/config.yaml`:
+
+```yaml
+paths:
+  cursor:
+    workspace_storage: "~/AppData/Roaming/Cursor/User/workspaceStorage" # Windows
+    user_db: "~/AppData/Roaming/Cursor/User/globalStorage/state.vscdb" # Windows
+```
+
+See `config/config.schema.yaml` for complete documentation of all configuration options.
 
 ## Documentation
 
@@ -332,8 +407,8 @@ bp-telemetry-core/
 │       │   └── database_monitor.py
 │       └── server.py        # Main processing server
 ├── config/
-│   ├── redis.yaml           # Redis configuration
-│   └── privacy.yaml         # Privacy settings
+│   ├── config.yaml          # Unified default configuration
+│   └── config.schema.yaml    # Configuration schema documentation
 ├── scripts/
 │   ├── init_redis.py        # Initialize Redis streams
 │   ├── init_database.py     # Initialize SQLite database

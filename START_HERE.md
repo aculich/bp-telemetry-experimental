@@ -116,9 +116,57 @@ cursor --install-extension ./blueplane-cursor-telemetry-0.1.0.vsix
    - `Blueplane: Stop Current Session`
 6. Alternatively, look for "Blueplane" on the bottom right corner in your extension status bar
 
-## Step 4: Initialize and Start the Server
+## Step 4: Configuration (Optional)
 
-### 4.1 Initialize the Database
+Blueplane Telemetry Core uses a unified YAML configuration system. The default configuration (`config/config.yaml`) works out of the box, but you can customize settings by creating a user config file.
+
+### 4.1 Review Default Configuration
+
+```bash
+# View the default configuration
+cat config/config.yaml
+
+# View the configuration schema documentation
+cat config/config.schema.yaml
+```
+
+### 4.2 Create User Configuration (Optional)
+
+```bash
+# Create user config directory
+mkdir -p ~/.blueplane
+
+# Copy default config as starting point
+cp config/config.yaml ~/.blueplane/config.yaml
+
+# Edit to customize (optional)
+# Common customizations:
+# - Redis connection settings (if not using default localhost:6379)
+# - Poll intervals for monitors
+# - Logging levels
+# - Platform-specific paths (Windows/Linux)
+```
+
+**Note**: You only need to override settings you want to change. The system merges your user config with defaults.
+
+### 4.3 Configuration Sections
+
+The configuration includes these main sections:
+
+- **paths**: Database and IDE file paths
+- **redis**: Redis connection and pool settings
+- **streams**: Message queue, DLQ, and CDC stream settings
+- **timeouts**: Various timeout values
+- **monitoring**: Poll intervals and thresholds
+- **batching**: Batch processing settings
+- **logging**: Log levels and feature flags
+- **features**: Feature toggles
+
+See `config/config.schema.yaml` for complete documentation.
+
+## Step 5: Initialize and Start the Server
+
+### 5.1 Initialize the Database
 
 ```bash
 # Return to project root
@@ -133,13 +181,14 @@ python scripts/init_redis.py
 # Creates Redis streams and consumer groups
 ```
 
-### 4.2 Start the Processing Server
+### 5.2 Start the Processing Server
 
 ```bash
 # Start the telemetry processing server
 python scripts/start_server.py
 
 # The server will:
+# - Load configuration from ~/.blueplane/config.yaml (if exists) or config/config.yaml
 # - Monitor Claude Code transcript files
 # - Process Cursor database events
 # - Write to SQLite database
@@ -148,7 +197,7 @@ python scripts/start_server.py
 # Keep this running in a terminal window or use a process manager
 ```
 
-### 4.3 Verify Server is Running
+### 5.3 Verify Server is Running
 
 ```bash
 # Check server status
@@ -159,7 +208,7 @@ ps aux | grep start_server.py
 redis-cli XLEN telemetry:events
 ```
 
-## Step 5: Observation and Data Access
+## Step 6: Observation and Data Access
 
 Once everything is running, your telemetry data is being collected in the following locations:
 
@@ -222,7 +271,7 @@ ls -la ~/.cursor/User/History/
 ls -lt ~/.cursor/User/History/*.json | head -10
 ```
 
-## Step 6: Test Your Setup
+## Step 7: Test Your Setup
 
 ### Test Claude Code Capture
 
