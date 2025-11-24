@@ -226,11 +226,7 @@ function loadConfiguration(): ExtensionConfig {
     reconnectBackoffBase: vsConfig.get<number>("reconnectBackoffBase", baseConfig.reconnectBackoffBase),
     reconnectBackoffMax: vsConfig.get<number>("reconnectBackoffMax", baseConfig.reconnectBackoffMax),
     streamTrimThreshold: vsConfig.get<number>("streamTrimThreshold", baseConfig.streamTrimThreshold),
-    dbMonitorPollInterval: vsConfig.get<number>("dbMonitorPollInterval", baseConfig.dbMonitorPollInterval),
-    fileWatcherStabilityThreshold: vsConfig.get<number>("fileWatcherStabilityThreshold", baseConfig.fileWatcherStabilityThreshold),
-    fileWatcherPollInterval: vsConfig.get<number>("fileWatcherPollInterval", baseConfig.fileWatcherPollInterval),
     sessionDirectory: vsConfig.get<string>("sessionDirectory", baseConfig.sessionDirectory),
-    cursorWorkspaceStoragePath: vsConfig.get<string>("cursorWorkspaceStoragePath", baseConfig.cursorWorkspaceStoragePath),
     hashTruncateLength: vsConfig.get<number>("hashTruncateLength", baseConfig.hashTruncateLength),
   };
 }

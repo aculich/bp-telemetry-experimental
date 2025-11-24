@@ -46,48 +46,12 @@ export interface ExtensionConfig {
   /** Stream trim threshold (max length) */
   streamTrimThreshold: number;
 
-  /** Database monitoring poll interval (milliseconds) */
-  dbMonitorPollInterval: number;
-
-  /** File watcher stability threshold (milliseconds) */
-  fileWatcherStabilityThreshold: number;
-
-  /** File watcher poll interval (milliseconds) */
-  fileWatcherPollInterval: number;
-
   /** Session directory relative to home (e.g., ".blueplane/cursor-session") */
   sessionDirectory: string;
-
-  /** Cursor workspace storage path relative to home */
-  cursorWorkspaceStoragePath: string;
 
   /** Hash truncation length for workspace hashes */
   hashTruncateLength: number;
 }
-
-export interface CursorPaths {
-  /** macOS workspace storage path */
-  macOS: string;
-  /** Linux workspace storage path */
-  linux: string;
-  /** Windows workspace storage path */
-  windows: string;
-}
-
-// =============================================================================
-// PLATFORM-SPECIFIC CONSTANTS
-// =============================================================================
-
-/**
- * Platform-specific Cursor workspace storage paths.
- * These are Cursor-specific conventions that vary by OS.
- * The config provides the default (usually macOS), but at runtime we need all platforms.
- */
-export const CURSOR_WORKSPACE_STORAGE_PATHS: CursorPaths = {
-  macOS: "Library/Application Support/Cursor/User/workspaceStorage",
-  linux: ".config/Cursor/User/workspaceStorage",
-  windows: "AppData/Roaming/Cursor/User/workspaceStorage",
-};
 
 // =============================================================================
 // DEFAULT VALUES (fallback if config not found)
@@ -104,12 +68,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   reconnectBackoffBase: 100,
   reconnectBackoffMax: 3000,
   streamTrimThreshold: 10000,
-  dbMonitorPollInterval: 30000,
-  fileWatcherStabilityThreshold: 100,
-  fileWatcherPollInterval: 100,
   sessionDirectory: ".blueplane/cursor-session",
-  cursorWorkspaceStoragePath:
-    "Library/Application Support/Cursor/User/workspaceStorage", // macOS default
   hashTruncateLength: 16, // Not configurable in config.yaml
 };
 
@@ -170,25 +129,9 @@ export function loadExtensionConfig(configPath?: string): ExtensionConfig {
     streamTrimThreshold:
       config?.streams?.max_length || DEFAULT_CONFIG.streamTrimThreshold,
 
-    dbMonitorPollInterval:
-      config?.monitoring?.extension_db_monitor?.poll_interval ||
-      DEFAULT_CONFIG.dbMonitorPollInterval,
-
-    fileWatcherStabilityThreshold:
-      config?.monitoring?.file_watcher?.stability_threshold ||
-      DEFAULT_CONFIG.fileWatcherStabilityThreshold,
-
-    fileWatcherPollInterval:
-      config?.monitoring?.file_watcher?.poll_interval ||
-      DEFAULT_CONFIG.fileWatcherPollInterval,
-
     sessionDirectory:
       stripHomePrefix(config?.paths?.cursor_sessions_dir) ||
       DEFAULT_CONFIG.sessionDirectory,
-
-    cursorWorkspaceStoragePath:
-      stripHomePrefix(config?.paths?.cursor?.workspace_storage) ||
-      DEFAULT_CONFIG.cursorWorkspaceStoragePath,
 
     hashTruncateLength: DEFAULT_CONFIG.hashTruncateLength, // Not configurable in config.yaml
   };
